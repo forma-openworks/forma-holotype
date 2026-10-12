@@ -1,0 +1,82 @@
+# Holotype Light — светлая тема по умолчанию Forma: Holotype: белая бумага и фиолетовый акцент.
+
+[theme]
+name = "Holotype Light"
+id = "holotype-light"
+dark = false
+author = "FORMA"
+
+[colors]
+bg = "#ffffff"
+"bg.panel" = "#f6f7f9"
+"bg.header" = "#f1f2f6"
+"bg.deep" = "#e4e7ec"
+"bg.elevated" = "#ffffff"
+"bg.hover" = "#eaecf1"
+border = "#dee1e7"
+text = "#282c34"
+"text.muted" = "#5c6370"
+"text.faint" = "#969ca8"
+heading = "#111318"
+accent = "#6c54e6"
+"accent.soft" = "alpha($accent, 14%)"
+"accent.text" = "#ffffff"
+selection = "alpha($accent, 24%)"
+highlight = "#facc156e"
+success = "#16a34a"
+warning = "#ca8a04"
+danger = "#dc2626"
+shadow = "#0000002a"
+"modal.backdrop" = "#00000040"
+# На белом галочкам и кнопкам нужна рамка, иначе их не видно.
+"control.border" = "$border.strong"
+"segmented.bg" = "$bg.hover"
+"segmented.selected" = "#ffffff"
+"editor.text" = "#282c34"
+
+# Заметки
+"note.link" = "$accent"
+"note.link.unresolved" = "alpha($accent, 59%)"
+"note.code.bg" = "#f6f7f9"
+"note.code.text" = "#282c34"
+"note.code.header" = "#f0f2f6"
+"note.code.border" = "#dce0e7"
+"note.code.gutter" = "#a0a6b2"
+"note.code.tint" = "$accent"
+"note.inline-code.bg" = "#f0f1f5"
+"note.inline-code.text" = "#be286e"
+"note.mark.bg" = "#fde04796"
+"note.tag.bg" = "alpha($accent, 12%)"
+"note.tag.text" = "darken($accent, 15%)"
+"note.quote.bar" = "alpha($accent, 63%)"
+"note.kbd.bg" = "#fcfcfd"
+"note.kbd.border" = "#ced3db"
+"note.kbd.shadow" = "#ced3db"
+"note.badge.bg" = "#e5e7ec"
+"note.badge.text" = "#373f4e"
+"note.table.bg" = "#ffffff"
+"note.table.head" = "#f4f5f8"
+"note.table.line" = "#e2e5eb"
+"note.card.bg" = "#fafafc"
+
+[syntax]
+comment = { color = "#8088a0", italic = true }
+keyword = "#c42678"
+operator = "#007da0"
+string = "#22863a"
+escape = "#007da0"
+number = "#c25e00"
+function = "#0070b6"
+type = "#9c6800"
+parameter = "#aa5a14"
+tag = "#c82850"
+attribute = "#9c6800"
+preprocessor = "#7c3aed"
+annotation = "#7c3aed"
+punctuation = "#646a78"
+heading = { color = "#2563eb", bold = true }
+bold = { color = "#9c6800", bold = true }
+italic = { color = "#c42678", italic = true }
+inserted = "#22863a"
+deleted = "#c81e3c"
+raw = "#0070b6"

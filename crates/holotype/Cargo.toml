@@ -1,0 +1,38 @@
+[package]
+name = "holotype"
+description = "Forma: Holotype — заметки и документация проекта FORMA, отрисовка через Vulkan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Cargo не разрешает пробел в имени бинарника.
+[[bin]]
+name = "forma-holotype"
+path = "src/main.rs"
+
+[dependencies]
+holotype-vault.workspace = true
+forma-i18n.workspace = true
+forma-layout.workspace = true
+forma-ui.workspace = true
+forma-actions.workspace = true
+forma-settings.workspace = true
+forma-plugins.workspace = true
+forma-shell.workspace = true
+eframe.workspace = true
+egui_extras = { version = "0.36", features = ["file", "image", "gif", "webp"] }
+# Подсветка кода при экспорте в HTML (в окне подсвечивает оболочка — цветами темы).
+two-face = { version = "0.5", default-features = false, features = ["syntect-default-fancy"] }
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+image.workspace = true
+rfd = "0.17"
+serde.workspace = true
+serde_json.workspace = true
+dirs = "6"
+chrono.workspace = true
+log.workspace = true
+
+[build-dependencies]
+forma-build.workspace = true
+# build.rs подключает src/icon.rs и раскодирует тот же рисунок иконки.
+image = { version = "0.25", default-features = false, features = ["webp"] }

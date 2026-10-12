@@ -1,0 +1,63 @@
+# Holotype Dark — тёмная тема по умолчанию Forma: Holotype: тёплый графит и фиолетовый акцент.
+# Ключи платформы Forma («bg», «accent», «menubar.bg»…) и ключи заметок («note.*»).
+# Полный список ключей с пояснениями — в шаблоне новой темы (Настройки → Внешний вид).
+
+[theme]
+name = "Holotype Dark"
+id = "holotype-dark"
+dark = true
+author = "FORMA"
+
+[colors]
+"bg.panel" = "#16181d"
+"bg.header" = "#191b21"
+"bg.deep" = "#101115"
+border = "#323640"
+accent = "#9684ff"
+
+# Заметки
+"note.link" = "lighten($accent, 15%)"
+"note.link.unresolved" = "alpha($note.link, 55%)"
+"note.code.bg" = "#14161b"
+"note.code.text" = "#d6dae2"
+"note.code.header" = "#1d2029"
+"note.code.border" = "#333744"
+"note.code.gutter" = "#565e72"
+"note.code.tint" = "lighten($accent, 22%)"
+"note.inline-code.bg" = "#2c2f39"
+"note.inline-code.text" = "#f4a0c4"
+"note.mark.bg" = "#facc1548"
+"note.tag.bg" = "alpha($accent, 16%)"
+"note.tag.text" = "lighten($accent, 35%)"
+"note.quote.bar" = "alpha($accent, 67%)"
+"note.kbd.bg" = "#30343e"
+"note.kbd.border" = "#4e5463"
+"note.kbd.shadow" = "#14161b"
+"note.badge.bg" = "#3a3e4a"
+"note.badge.text" = "#e2e5eb"
+"note.table.bg" = "#21242c"
+"note.table.head" = "#191b22"
+"note.table.line" = "#343844"
+"note.card.bg" = "#1e2128"
+
+[syntax]
+comment = { color = "#7a86b6", italic = true }
+keyword = "#f472b6"
+operator = "#89ddff"
+string = "#9ece6a"
+escape = "#89ddff"
+number = "#ff9e64"
+function = "#7dcfff"
+type = "#e0af68"
+parameter = "#ffc78c"
+tag = "#f7768e"
+attribute = "#e0af68"
+preprocessor = "#bb9af7"
+annotation = "#bb9af7"
+punctuation = "#a9b1d6"
+heading = { color = "#7aa2f7", bold = true }
+bold = { color = "#e0af68", bold = true }
+italic = { color = "#f472b6", italic = true }
+inserted = "#9ece6a"
+deleted = "#f7768e"
+raw = "#7dcfff"
