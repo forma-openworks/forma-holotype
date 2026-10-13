@@ -154,11 +154,26 @@ impl Atom {
     }
 }
 
+/// Предел размера разворота в строках: `-*100>-*100>-*100` не строим (разбор идёт на каждое нажатие).
+const MAX_LINES: usize = 1000;
+
 /// Разбирает сокращение целиком. None — это не сокращение.
 fn parse(src: &str) -> Option<Vec<Node>> {
     let mut p = Parser { c: src.chars().collect(), i: 0 };
     let nodes = p.seq(0)?;
-    (p.i == p.c.len()).then_some(nodes)
+    (p.i == p.c.len() && weight(&nodes) <= MAX_LINES).then_some(nodes)
+}
+
+/// Сколько строк даст разворот — по дереву, без сборки текста. Множители перемножаются (с насыщением).
+fn weight(nodes: &[Node]) -> usize {
+    nodes.iter().fold(0usize, |sum, n| {
+        let own = match &n.item {
+            Item::Group(inner) => weight(inner),
+            Item::Atom(Atom::Table { rows, .. }, _) => rows.unwrap_or(2) + 2,
+            Item::Atom(..) => 1,
+        };
+        sum.saturating_add(n.mult.saturating_mul(own.saturating_add(weight(&n.children))))
+    })
 }
 
 struct Parser {
@@ -240,7 +255,7 @@ impl Parser {
                 && self.c.get(self.i + 1).is_some_and(char::is_ascii_digit)
             {
                 self.i += 1;
-                rows = Some(self.number()?);
+                rows = Some(self.number().filter(|n| (1..=100).contains(n))?);
             }
             Item::Atom(resolve(&name, text.is_some(), rows)?, text)
         };
@@ -642,11 +657,12 @@ fn numbered(t: &str, num: usize) -> String {
             if c.get(i) == Some(&'@') && c.get(i + 1).is_some_and(char::is_ascii_digit) {
                 i += 1;
                 let mut base = 0usize;
+                // Длинное число не должно переполнить usize (в debug это паника).
                 while let Some(d) = c.get(i).and_then(|c| c.to_digit(10)) {
-                    base = base * 10 + d as usize;
+                    base = base.saturating_mul(10).saturating_add(d as usize);
                     i += 1;
                 }
-                value = base + num - 1;
+                value = base.saturating_add(num.saturating_sub(1));
             }
             out.push_str(&format!("{value:0width$}"));
         } else {
@@ -916,5 +932,27 @@ mod tests {
         // Внутри блока кода ничего не разворачиваем.
         let src = "```\nt3x3";
         assert!(at_cursor(src, src.len()).is_none());
+    }
+
+    #[test]
+    fn size_limits() {
+        // Строки после заголовков таблицы ограничены так же, как в `t3x4`.
+        assert_eq!(expand("t{A|B}x100").text.lines().count(), 102);
+        for s in ["t{A|B}x101", "t{A|B}x0", "t{A|B}x99999999999999999999"] {
+            assert!(at_cursor(s, s.len()).is_none(), "{s}");
+        }
+        // Множители вложенных элементов перемножаются; больше MAX_LINES строк не строим вовсе.
+        assert_eq!(expand("-*100>-*9").text.lines().count(), MAX_LINES);
+        let deep = "-*100>".repeat(11) + "-*100";
+        for s in ["-*100>-*10", "-*100>-*100>-*100", "(-*100)*100", "t3x100*10", deep.as_str()] {
+            assert!(at_cursor(s, s.len()).is_none(), "{s}");
+        }
+    }
+
+    #[test]
+    fn huge_numbering_base_saturates() {
+        // `$@` с огромным числом не переполняет usize, а упирается в предел.
+        assert_eq!(numbered("$@99999999999999999999999", 2), usize::MAX.to_string());
+        assert_eq!(numbered("$@5", 3), "7");
     }
 }

@@ -12,14 +12,15 @@ license = "MIT"
 
 [workspace.dependencies]
 holotype-vault = { path = "crates/holotype-vault" }
-forma-build = { path = "../ModdingIDE/crates/forma-build" }
-forma-i18n = { path = "../ModdingIDE/crates/forma-i18n" }
-forma-layout = { path = "../ModdingIDE/crates/forma-layout" }
-forma-ui = { path = "../ModdingIDE/crates/forma-ui" }
-forma-actions = { path = "../ModdingIDE/crates/forma-actions" }
-forma-settings = { path = "../ModdingIDE/crates/forma-settings" }
-forma-plugins = { path = "../ModdingIDE/crates/forma-plugins" }
-forma-shell = { path = "../ModdingIDE/crates/forma-shell" }
+# Ядро Forma Core — отдельный репозиторий, Cargo берёт его с GitHub.
+forma-build = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-i18n = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-layout = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-ui = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-actions = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-settings = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-plugins = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-shell = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
 
 eframe = { version = "0.36", default-features = false, features = [
     "wgpu_no_default_features",

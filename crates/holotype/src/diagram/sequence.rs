@@ -72,7 +72,8 @@ fn parse(src: &str) -> Result<Parsed, String> {
     }
 
     for line in lines {
-        let lower = line.to_lowercase();
+        // ASCII-регистр: длина `word` в байтах — та же, что в `line` (срезы ниже).
+        let lower = line.to_ascii_lowercase();
         let word = lower.split_whitespace().next().unwrap_or("");
         let rest_after = |n: usize| line[n..].trim();
         match word {
@@ -134,7 +135,7 @@ fn parse(src: &str) -> Result<Parsed, String> {
             }
             "note" => {
                 let (head_part, text) = line.split_once(':').ok_or_else(|| t!("diagram-error-note-text"))?;
-                let h = head_part.to_lowercase();
+                let h = head_part.to_ascii_lowercase();
                 let after = |kw: &str| h.find(kw).map(|k| head_part[k + kw.len()..].trim().to_owned());
                 let (pos, who) = if let Some(w) = after("right of") {
                     (NotePos::Right, w)
@@ -547,5 +548,14 @@ mod tests {
         assert_eq!(msgs, 4);
         let s = layout(src, &Approx).unwrap();
         assert!(s.size.x > 200.0 && s.size.y > 200.0);
+    }
+
+    #[test]
+    fn non_ascii_before_keywords() {
+        // 'İ' в нижнем регистре длиннее на байт, знак Кельвина 'K' становится 'k':
+        // позиции из строчной копии не должны резать исходную строку посреди символа.
+        let p = parse("sequenceDiagram\n  Note İİ over Жанна: привет").unwrap();
+        assert_eq!(p.parts[0].label, vec!["Жанна"]);
+        let _ = parse("sequenceDiagram\n  brea\u{212A} цикл\n  end");
     }
 }

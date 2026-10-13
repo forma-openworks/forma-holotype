@@ -1,6 +1,7 @@
 //! Подсветка кода: около 170 языков из набора bat (через two-face) и собственные темы
 //! в духе современных редакторов. Используется и в просмотре, и при экспорте в HTML.
 
+use std::ops::Range;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
@@ -37,6 +38,8 @@ pub fn find(lang: &str) -> Option<&'static SyntaxReference> {
     let lower = lang.trim().to_lowercase();
     let token = match lower.as_str() {
         "" | "text" | "txt" | "plain" | "plaintext" | "output" | "log" => return None,
+        // Сеансы консоли и логи раскрашивает `term`.
+        "console" | "terminal" | "shell-session" | "sh-session" => return None,
         // Шейдерные языки: HLSL и Cg очень похожи на GLSL.
         "hlsl" | "shader" | "frag" | "vert" | "comp" | "geom" | "tesc" | "tese" | "fx" | "fxh" | "cg" | "shaderlab" => "glsl",
         "metal" | "cuda" | "cu" | "hpp" | "cc" | "cxx" | "h++" | "c++" => "cpp",
@@ -58,8 +61,11 @@ pub fn find(lang: &str) -> Option<&'static SyntaxReference> {
         "tf" | "terraform" => "tf",
         "gd" | "gdscript" | "godot" => "gd",
         "py" | "python3" | "py3" => "py",
-        "sh" | "shell" | "zsh" | "console" | "terminal" => "bash",
-        "ps" | "ps1" | "pwsh" | "powershell" | "bat" | "cmd" => "bat",
+        "sh" | "shell" | "zsh" => "bash",
+        // Своего синтаксиса PowerShell в наборе нет (с fancy-regex его не собрать):
+        // у Bash те же `$переменные`, `#комментарии` и строки — ближе, чем у Batch.
+        "ps" | "ps1" | "psm1" | "pwsh" | "powershell" => "bash",
+        "bat" | "cmd" => "bat",
         "yml" => "yaml",
         "md" => "markdown",
         "rs" => "rs",
@@ -85,6 +91,9 @@ pub fn display_name(lang: &str) -> String {
         "hlsl" => return "HLSL".to_owned(),
         "metal" => return "Metal".to_owned(),
         "cuda" | "cu" => return "CUDA".to_owned(),
+        "ps" | "ps1" | "psm1" | "pwsh" | "powershell" => return "PowerShell".to_owned(),
+        "console" | "terminal" | "shell-session" | "sh-session" => return t!("lang-console"),
+        "log" => return t!("lang-log"),
         _ => {}
     }
     match find(lang) {
@@ -242,6 +251,31 @@ fn build_job(code: &str, lang: &str, dark: bool, size: f32, line_height: f32) ->
     job
 }
 
+/// Подсвеченный текст как участки «цвет, курсив» (для команд консоли).
+pub fn ranges(code: &str, lang: &str, dark: bool) -> Vec<(Range<usize>, Color32, bool)> {
+    let theme = theme(dark);
+    let fg = theme.settings.foreground.map(to_color32).unwrap_or(Color32::GRAY);
+    let Some(syntax) = find(lang) else { return vec![(0..code.len(), fg, false)] };
+    let mut h = HighlightLines::new(syntax, theme);
+    let mut out = Vec::new();
+    let mut start = 0;
+    for line in LinesWithEndings::from(code) {
+        match h.highlight_line(line, syntaxes()) {
+            Ok(parts) => {
+                for (style, text) in parts {
+                    out.push((start..start + text.len(), to_color32(style.foreground), style.font_style.contains(FontStyle::ITALIC)));
+                    start += text.len();
+                }
+            }
+            Err(_) => {
+                out.push((start..start + line.len(), fg, false));
+                start += line.len();
+            }
+        }
+    }
+    out
+}
+
 /// HTML с классами подсветки (для экспорта).
 pub fn html(code: &str, lang: &str) -> Option<String> {
     let syntax = find(lang)?;
@@ -269,6 +303,32 @@ mod tests {
             assert!(find(lang).is_some(), "не найден язык {lang}");
         }
         assert!(find("text").is_none());
+    }
+
+    #[test]
+    fn powershell_is_not_batch() {
+        crate::i18n::init();
+        // Настоящего синтаксиса PowerShell в наборе (fancy-regex) нет — берём Bash, не Batch.
+        assert!(syntaxes().find_syntax_by_name("PowerShell").is_none());
+        for lang in ["powershell", "ps1", "pwsh", "ps", "PowerShell"] {
+            assert_eq!(find(lang).map(|s| s.name.as_str()), Some("Bourne Again Shell (bash)"), "{lang}");
+            assert_eq!(display_name(lang), "PowerShell");
+        }
+        assert_eq!(find("bat").map(|s| s.name.as_str()), Some("Batch File"));
+        assert_eq!(find("cmd").map(|s| s.name.as_str()), Some("Batch File"));
+        // Консоль и лог рисуются отдельно, подсветки кода у них нет.
+        assert!(find("console").is_none() && find("terminal").is_none() && find("log").is_none());
+        assert!(find("sh").is_some());
+    }
+
+    #[test]
+    fn ranges_cover_the_text() {
+        let code = "cargo build --release # сборка";
+        let r = ranges(code, "bash", true);
+        assert_eq!(r.first().unwrap().0.start, 0);
+        assert_eq!(r.last().unwrap().0.end, code.len());
+        assert!(r.windows(2).all(|w| w[0].0.end == w[1].0.start));
+        assert!(r.iter().any(|(_, _, italic)| *italic), "комментарий курсивом");
     }
 
     #[test]

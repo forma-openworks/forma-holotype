@@ -9,7 +9,8 @@
 //! - цвет выделения: `==текст=={blue}`;
 //! - клавиши: `<kbd>Ctrl</kbd>` или короче `{{Ctrl+S}}`;
 //! - блоки кода с заголовком и вкладками: ```` ```js title="app.js" tab="Без React" ````
-//!   (идущие подряд блоки с `tab` объединяются в один блок с вкладками);
+//!   (идущие подряд блоки с `tab` объединяются в один блок с вкладками), сворачивание
+//!   длинных блоков `lines=12` и `open`, папка в приглашении консоли `cwd="~/hangar"`;
 //! - автор цитаты: последняя строка цитаты, начинающаяся с «—».
 
 
@@ -97,6 +98,12 @@ pub struct CodeBlock {
     pub title: Option<String>,
     /// Название вкладки: `tab="Вариант 1"`.
     pub tab: Option<String>,
+    /// Папка в приглашении консоли: `cwd="~/hangar"`.
+    pub cwd: Option<String>,
+    /// Сколько строк видно у свёрнутого блока: `lines=12`.
+    pub lines: Option<usize>,
+    /// Не сворачивать никогда: атрибут `open` без значения.
+    pub open: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -192,6 +199,11 @@ pub fn link_note_part(target: &str) -> &str {
 pub fn link_heading_part(target: &str) -> Option<&str> {
     let t = target.split('|').next().unwrap_or(target);
     t.split_once('#').map(|(_, h)| h.trim()).filter(|h| !h.is_empty())
+}
+
+/// Тот же ли это заголовок: без учёта регистра (и кириллицы) и краевых пробелов.
+pub fn same_heading(a: &str, b: &str) -> bool {
+    a.trim().to_lowercase() == b.trim().to_lowercase()
 }
 
 pub fn is_image_path(path: &str) -> bool {
@@ -465,8 +477,7 @@ impl Builder {
                     if code.ends_with('\n') {
                         code.pop();
                     }
-                    let (lang, title, tab) = parse_code_info(&info);
-                    self.push_block(Block::Code(CodeBlock { lang, code, title, tab }));
+                    self.push_block(Block::Code(CodeBlock { code, ..parse_code_info(&info) }));
                 }
                 _ => {}
             }
@@ -1015,17 +1026,30 @@ fn parse_attrs(s: &str) -> Option<(Option<[u8; 3]>, bool)> {
     any.then_some((tint, badge))
 }
 
-/// Разбор строки после ``` : язык и атрибуты `title="…"`, `tab="…"`.
-fn parse_code_info(info: &str) -> (String, Option<String>, Option<String>) {
+/// Разбор строки после ``` : язык и атрибуты `title="…"`, `tab="…"`, `cwd="…"`, `lines=N`
+/// и флаг `open`. Код в ответе пустой.
+fn parse_code_info(info: &str) -> CodeBlock {
     let info = info.trim();
     let lang_end = info.find(|c: char| c.is_whitespace() || c == '{').unwrap_or(info.len());
-    let lang = info[..lang_end].trim_end_matches(',').to_owned();
-    let mut title = None;
-    let mut tab = None;
+    let mut cb = CodeBlock { lang: info[..lang_end].trim_end_matches(',').to_owned(), ..Default::default() };
     let mut rest = &info[lang_end..];
-    while let Some(eq) = rest.find('=') {
-        let key = rest[..eq].trim().trim_start_matches(['{', ',', ' ']).trim().to_lowercase();
-        let after = rest[eq + 1..].trim_start();
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '{' | '}' | ','));
+        if rest.is_empty() {
+            break;
+        }
+        let key_end = rest.find(|c: char| c.is_whitespace() || matches!(c, '=' | '{' | '}' | ',')).unwrap_or(rest.len());
+        let key = rest[..key_end].to_lowercase();
+        let after = rest[key_end..].trim_start();
+        // Без `=` — флаг вроде `open`.
+        let Some(after) = after.strip_prefix('=') else {
+            if key == "open" {
+                cb.open = true;
+            }
+            rest = &rest[key_end.max(1)..];
+            continue;
+        };
+        let after = after.trim_start();
         let (value, next) = if let Some(q) = after.strip_prefix('"') {
             match q.find('"') {
                 Some(end) => (&q[..end], &q[end + 1..]),
@@ -1036,13 +1060,16 @@ fn parse_code_info(info: &str) -> (String, Option<String>, Option<String>) {
             (&after[..end], &after[end..])
         };
         match key.as_str() {
-            "title" | "file" | "filename" | "name" => title = Some(value.to_owned()),
-            "tab" | "label" => tab = Some(value.to_owned()),
+            "title" | "file" | "filename" | "name" => cb.title = Some(value.to_owned()),
+            "tab" | "label" => cb.tab = Some(value.to_owned()),
+            "cwd" | "dir" => cb.cwd = Some(value.to_owned()).filter(|v| !v.is_empty()),
+            "lines" => cb.lines = value.parse().ok(),
+            "open" => cb.open = !matches!(value, "false" | "0" | "no"),
             _ => {}
         }
         rest = next;
     }
-    (lang, title, tab)
+    cb
 }
 
 /// Подпись автора в цитате: последняя строка, начинающаяся с «—», «–» или «--».
@@ -1313,6 +1340,31 @@ mod tests {
     }
 
     #[test]
+    fn code_info_attrs() {
+        let cb = parse_code_info(r#"console title="Сборка" cwd="~/hangar" lines=8 open"#);
+        assert_eq!(cb.lang, "console");
+        assert_eq!(cb.title.as_deref(), Some("Сборка"));
+        assert_eq!(cb.cwd.as_deref(), Some("~/hangar"));
+        assert_eq!(cb.lines, Some(8));
+        assert!(cb.open);
+        // Порядок и скобки не важны, флаг может стоять первым.
+        let cb = parse_code_info("log {open, lines=20, title=latest.log}");
+        assert_eq!((cb.lines, cb.open, cb.title.as_deref()), (Some(20), true, Some("latest.log")));
+        let cb = parse_code_info(r#"rust title = "main.rs" lines=x"#);
+        assert_eq!(cb.title.as_deref(), Some("main.rs"));
+        assert_eq!((cb.lines, cb.open, cb.cwd), (None, false, None));
+        // `opened` — не флаг `open`.
+        assert!(!parse_code_info("js opened").open);
+        let doc = parse("```console cwd=~/x lines=3
+$ ls
+```");
+        match &doc.blocks[0] {
+            Block::Code(c) => assert_eq!((c.code.as_str(), c.cwd.as_deref(), c.lines), ("$ ls", Some("~/x"), Some(3))),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn quote_author() {
         let doc = parse("> Простота — залог надёжности.\n> — Эдсгер Дейкстра");
         match &doc.blocks[0] {
@@ -1325,5 +1377,16 @@ mod tests {
         }
         let doc = parse("> Просто цитата без автора");
         assert!(matches!(&doc.blocks[0], Block::Quote { author: None, .. }));
+    }
+
+    #[test]
+    fn heading_match_ignores_case() {
+        assert!(same_heading("Введение", "введение"));
+        assert!(same_heading(" ЁЖИК В ТУМАНЕ ", "ёжик в тумане"));
+        assert!(same_heading("Getting Started", "getting started"));
+        assert!(!same_heading("Введение", "Заключение"));
+        // Ссылка `[[Заметка#введение]]` и заголовок `# Введение` дают один якорь при экспорте.
+        let h = link_heading_part("Заметка#введение|тут").unwrap();
+        assert_eq!(slug(h), slug("Введение"));
     }
 }

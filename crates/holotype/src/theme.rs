@@ -58,17 +58,21 @@ forma_ui::theme_tokens! {
         table_line = "note.table.line" => "$border",
         /// Карточки: свойства заметки, обратные ссылки
         card_bg = "note.card.bg" => "mix($bg, $bg.elevated, 40%)",
+        /// Синий в консоли и логах: поля rustc, уровень INFO, папка в приглашении
+        term_info = "note.term.info" => "mix(#3b82f6, $text, 25%)",
+        /// Голубой в консоли: `note` и `help` у rustc
+        term_hint = "note.term.hint" => "mix(#06b6d4, $text, 30%)",
     }
 }
 
-/// Встроенные темы: свои темы Holotype (первая — запасная) и темы Forma Mycelium, чтобы
-/// программы платформы можно было одеть одинаково. Цвета заметок у тем Mycelium выводятся
-/// из цветов платформы.
+/// Встроенные темы: свои темы Holotype (первая — запасная) и общие темы платформы
+/// Mycelium Dark и Light, чтобы программы платформы можно было одеть одинаково. Цвета
+/// заметок у тем Mycelium выводятся из цветов платформы.
 pub const BUILTIN_THEMES: &[&str] = &[
     include_str!("../themes/holotype-dark.toml"),
     include_str!("../themes/holotype-light.toml"),
-    include_str!("../../../../ModdingIDE/crates/mycelium/themes/mycelium-dark.toml"),
-    include_str!("../../../../ModdingIDE/crates/mycelium/themes/mycelium-light.toml"),
+    forma_ui::theme::MYCELIUM_THEMES[0],
+    forma_ui::theme::MYCELIUM_THEMES[1],
 ];
 /// Тема по умолчанию.
 pub const DEFAULT_THEME: &str = "holotype-dark";
@@ -167,6 +171,9 @@ pub struct Palette {
     pub table_line: Color32,
     /// Карточки (свойства, обратные ссылки).
     pub card_bg: Color32,
+    /// Синий и голубой в консоли и логах (остальные цвета — success, warning, danger).
+    pub term_info: Color32,
+    pub term_hint: Color32,
 }
 
 impl Palette {
@@ -214,6 +221,8 @@ impl Palette {
             table_head: n.table_head,
             table_line: n.table_line,
             card_bg: n.card_bg,
+            term_info: n.term_info,
+            term_hint: n.term_hint,
         }
     }
 

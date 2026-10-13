@@ -26,7 +26,7 @@
 
 ### What it is
 
-Forma: Holotype is a desktop app for notes, study notes and documentation in the spirit of Obsidian. It is part of FORMA and is built on the Forma platform: "different apps, one base". The window, areas and tabs, workspaces, themes, settings, keymap, Find Action, plugins and translations are shared with [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype brings only its own parts: notes, the editor, the reading view, the graph, formulas, diagrams and export.
+Forma: Holotype is a desktop app for notes, study notes and documentation in the spirit of Obsidian. It is part of FORMA and is built on [Forma Core](https://github.com/forma-openworks/forma-core): "different apps, one base". The window, areas and tabs, workspaces, themes, settings, keymap, Find Action, plugins and translations are shared with [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype brings only its own parts: notes, the editor, the reading view, the graph, formulas, diagrams and export.
 
 Notes are plain `.md` files in a folder (a "vault"), so they open in any editor and can live in git.
 
@@ -48,11 +48,12 @@ A holotype is the first specimen a new species is described from.
 
 **Reading**
 - **A reading view** with callouts (`> [!tip]`), aligned tables, clickable tasks, code highlighting for about 170 languages (GLSL and WGSL included) with tabs on code blocks, images, footnotes, YAML properties and embedded notes `![[…]]`.
+- **Terminal sessions and logs:** a `console` block shows a bash session: the `$` prompt is drawn but never copied, “Copy commands” takes only the commands, and Cargo and rustc output is colored like in a terminal. A `log` block highlights timestamps, sources and levels and tints WARN and ERROR lines. Long sessions and logs fold after 12 lines (`lines=N` changes that, `open` turns it off).
 - **Diagrams:** `mermaid` blocks (flowcharts, sequence, class, state and pie diagrams) and `dot` (Graphviz) are drawn as diagrams. Parsing and layout are the app's own; export turns them into SVG.
 - **LaTeX formulas** with a typesetting engine of its own: fractions, roots, indices, sums and integrals with limits, `\left…\right`, matrices, `cases`, `aligned`, accents, `\mathbb`/`\mathcal`, `\text{…}`, `\color`, `\boxed`.
 - **Export to HTML:** a single note into one file with images inside, or the whole vault as a static documentation site with navigation.
 
-**Feels like home (the Forma platform)**
+**Feels like home (Forma Core)**
 - **A layout in the spirit of Blender.** Files, search, tags, notes, the graph, the outline, backlinks and info are tabs. Drag them between areas, split areas, tear tabs out into separate OS windows.
 - **Workspaces** Notes, Graph and Focus, plus your own. The layout is remembered per vault (`.holotype/workspace.json`).
 - **A window frame of its own** with the app's top bar instead of the Windows title bar.
@@ -66,7 +67,7 @@ A holotype is the first specimen a new species is described from.
 1. ✅ **Notes:** the vault, the editor, the reading view, links, tags, the graph, export.
 2. ✅ **Formulas and diagrams:** the LaTeX engine, mermaid and Graphviz.
 3. ✅ **IDE-style help:** completion and Emmet-style abbreviations.
-4. ✅ **Forma platform:** the shared shell, themes, settings, keymap, plugins, English and Russian.
+4. ✅ **Forma Core:** the shared shell, themes, settings, keymap, plugins, English and Russian.
 
 Not there yet:
 - live preview in the editor (as in Obsidian);
@@ -77,7 +78,7 @@ Not there yet:
 ### Built with
 
 - [Rust](https://www.rust-lang.org/) and [egui](https://github.com/emilk/egui), rendered through [wgpu](https://wgpu.rs/) on Vulkan.
-- The Forma platform crates from [forma-mycelium](https://github.com/forma-openworks/forma-mycelium).
+- The [Forma Core](https://github.com/forma-openworks/forma-core) crates.
 - [pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark) for Markdown, [syntect](https://github.com/trishume/syntect) and [two-face](https://github.com/CosmicHorrorDev/two-face) for code highlighting.
 - [Fluent](https://projectfluent.org/) for localization.
 - [Lucide](https://lucide.dev) icons (ISC License, see `crates/holotype/icons/lucide/LICENSE`).
@@ -86,10 +87,9 @@ Not there yet:
 
 You need stable Rust (edition 2024) and a GPU driver with Vulkan support. Development and testing currently happen on Windows.
 
-The platform crates are linked by path, so clone the platform next to this repository, in a folder named `ModdingIDE`:
+Cargo downloads the Forma Core crates from GitHub by itself.
 
 ```bash
-git clone https://github.com/forma-openworks/forma-mycelium ModdingIDE
 git clone https://github.com/forma-openworks/forma-holotype
 cd forma-holotype
 cargo run --release
@@ -171,7 +171,7 @@ Forma: Holotype is part of FORMA. Idea and design: Holo. The code is written ent
 
 ### Что это
 
-Forma: Holotype — программа для заметок, конспектов и документации в духе Obsidian. Она часть FORMA и построена на платформе Forma: «разные приложения — одна основа». Окно, области и вкладки, рабочие пространства, темы, настройки, горячие клавиши, «Найти действие», плагины и переводы общие с [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype приносит только своё: заметки, редактор, просмотр, граф, формулы, диаграммы и экспорт.
+Forma: Holotype — программа для заметок, конспектов и документации в духе Obsidian. Она часть FORMA и построена на [Forma Core](https://github.com/forma-openworks/forma-core): «разные приложения — одна основа». Окно, области и вкладки, рабочие пространства, темы, настройки, горячие клавиши, «Найти действие», плагины и переводы общие с [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype приносит только своё: заметки, редактор, просмотр, граф, формулы, диаграммы и экспорт.
 
 Заметки — обычные `.md` файлы в папке («хранилище»), поэтому их можно открыть в любом редакторе или держать в git.
 
@@ -193,11 +193,12 @@ Forma: Holotype — программа для заметок, конспекто
 
 **Чтение**
 - **Красивый просмотр:** плашки (`> [!tip]`), таблицы с выравниванием, кликабельные задачи, подсветка кода (около 170 языков, включая GLSL и WGSL) и вкладки у блоков кода, картинки, сноски, YAML-свойства, встраивание заметок `![[…]]`.
+- **Консоль и логи:** блок `console` показывает сеанс bash: приглашение `$` нарисовано, но не копируется, «Копировать команды» берёт только команды, а вывод Cargo и rustc раскрашен как в терминале. Блок `log` подсвечивает время, источник и уровень и окрашивает строки WARN и ERROR. Длинные сеансы и логи сворачиваются после 12 строк (`lines=N` меняет порог, `open` отключает).
 - **Диаграммы:** блоки `mermaid` (блок-схемы, последовательности, классы, состояния, круговые) и `dot` (Graphviz) рисуются схемами. Разбор и раскладка свои, при экспорте получаются SVG.
 - **Формулы LaTeX** на собственном движке вёрстки: дроби, корни, индексы, суммы и интегралы с пределами, `\left…\right`, матрицы, `cases`, `aligned`, акценты, `\mathbb`/`\mathcal`, `\text{…}` по-русски, `\color`, `\boxed`.
 - **Экспорт в HTML:** одна заметка в отдельный файл (картинки встраиваются внутрь) или всё хранилище как статический сайт документации с навигацией.
 
-**Как дома (платформа Forma)**
+**Как дома (Forma Core)**
 - **Раскладка в духе Blender.** Файлы, поиск, теги, заметки, граф, оглавление, обратные ссылки и сведения — вкладки. Их можно перетаскивать между областями, делить области и выносить в отдельные окна.
 - **Рабочие пространства** «Заметки», «Граф» и «Фокус», плюс свои. Раскладка запоминается для каждого хранилища (`.holotype/workspace.json`).
 - **Своя рамка окна:** вместо заголовка Windows — верхняя строка программы.
@@ -211,7 +212,7 @@ Forma: Holotype — программа для заметок, конспекто
 1. ✅ **Заметки:** хранилище, редактор, просмотр, ссылки, теги, граф, экспорт.
 2. ✅ **Формулы и диаграммы:** движок LaTeX, mermaid и Graphviz.
 3. ✅ **Помощь как в IDE:** подсказки и сокращения в духе Emmet.
-4. ✅ **Платформа Forma:** общая оболочка, темы, настройки, горячие клавиши, плагины, русский и английский.
+4. ✅ **Forma Core:** общая оболочка, темы, настройки, горячие клавиши, плагины, русский и английский.
 
 Чего пока нет:
 - живого просмотра прямо в редакторе (как в Obsidian);
@@ -222,7 +223,7 @@ Forma: Holotype — программа для заметок, конспекто
 ### На чём сделано
 
 - [Rust](https://www.rust-lang.org/) и [egui](https://github.com/emilk/egui), отрисовка через [wgpu](https://wgpu.rs/) на Vulkan.
-- Крейты платформы Forma из [forma-mycelium](https://github.com/forma-openworks/forma-mycelium).
+- Крейты [Forma Core](https://github.com/forma-openworks/forma-core).
 - [pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark) для Markdown, [syntect](https://github.com/trishume/syntect) и [two-face](https://github.com/CosmicHorrorDev/two-face) для подсветки кода.
 - [Fluent](https://projectfluent.org/) для локализации.
 - Значки [Lucide](https://lucide.dev) (лицензия ISC, см. `crates/holotype/icons/lucide/LICENSE`).
@@ -231,10 +232,9 @@ Forma: Holotype — программа для заметок, конспекто
 
 Нужны Rust (stable, edition 2024) и драйвер видеокарты с поддержкой Vulkan. Разработка и проверка пока идут на Windows.
 
-Крейты платформы подключаются по пути, поэтому платформу нужно положить рядом с этим репозиторием, в папку `ModdingIDE`:
+Крейты Forma Core Cargo скачивает с GitHub сам.
 
 ```bash
-git clone https://github.com/forma-openworks/forma-mycelium ModdingIDE
 git clone https://github.com/forma-openworks/forma-holotype
 cd forma-holotype
 cargo run --release

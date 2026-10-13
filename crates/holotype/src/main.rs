@@ -25,6 +25,7 @@ mod math;
 mod render;
 mod settings;
 mod tabs;
+mod term;
 mod theme;
 
 pub use holotype_vault::{markdown, sample, vault};

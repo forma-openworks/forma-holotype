@@ -527,7 +527,6 @@ pub fn layout(g: &Graph, m: &dyn Measure) -> Scene {
             }
         }
     }
-
     // Координаты вдоль рангов.
     let has_end_texts = g.edges.iter().any(|e| e.tail_text.is_some() || e.head_text.is_some());
     let rank_gap = (if horiz { 56.0 } else { 46.0 }
@@ -542,6 +541,31 @@ pub fn layout(g: &Graph, m: &dyn Measure) -> Scene {
     for r in 1..ranks {
         rank_pos[r] = rank_pos[r - 1] + max_main[r - 1] / 2.0 + rank_gap + max_main[r] / 2.0;
     }
+
+    // Длинные рёбра без лишних изгибов.
+    let mut slot = vec![0usize; total];
+    for layer in &layers {
+        for (k, &v) in layer.iter().enumerate() {
+            slot[v] = k;
+        }
+    }
+    let rows = Rows { layers: &layers, slot: &slot, ln: &ln, rank_pos: &rank_pos, max_main: &max_main };
+    straighten(&chains, &rows, &mut x, gap);
+    // Где в своём слое может пройти фиктивный узел: не ближе `gap` к настоящим узлам
+    // и подписям и не дальше середины до соседних рёбер, чтобы рёбра не перекрещивались.
+    // Подпись стоит на своём фиктивном узле, и ребро проходит ровно через неё.
+    let band = |v: usize| -> (f32, f32) {
+        if ln[v].cross > 0.0 {
+            return (x[v], x[v]);
+        }
+        let layer = &layers[ln[v].rank];
+        let k = slot[v];
+        let side = |u: usize| if solid(&ln[u]) { gap(&ln[u], &ln[v]) } else { (x[v] - x[u]).abs() / 2.0 };
+        let lo = if k > 0 { x[layer[k - 1]] + side(layer[k - 1]) } else { f32::NEG_INFINITY };
+        let hi = if k + 1 < layer.len() { x[layer[k + 1]] - side(layer[k + 1]) } else { f32::INFINITY };
+        if lo <= hi { (lo, hi) } else { (x[v], x[v]) }
+    };
+
     let pos_of = |v: usize| -> Pos2 {
         let (c, mm) = (x[v], rank_pos[ln[v].rank]);
         match dir {
@@ -557,6 +581,7 @@ pub fn layout(g: &Graph, m: &dyn Measure) -> Scene {
     let mut scene = Scene::default();
     draw_clusters(&mut scene, g, &rects, m);
     let d = dir.main();
+    let c_axis = if horiz { vec2(0.0, 1.0) } else { vec2(1.0, 0.0) };
     let mut labels: Vec<(Pos2, &Edge, Vec2)> = Vec::new();
     for (chain, ei, rev) in &chains {
         let e = &g.edges[*ei];
@@ -570,7 +595,30 @@ pub fn layout(g: &Graph, m: &dyn Measure) -> Scene {
         let (next, prev) = (pts[1], pts[n0 - 2]);
         pts[0] = port(&g.nodes[first].shape, rects[first], d, next);
         pts[n0 - 1] = port(&g.nodes[last].shape, rects[last], -d, prev);
-        let curve = smooth(&pts, d);
+        // Ряд с узлами ребро пересекает внутри своей полосы, иначе заденет соседей.
+        // Через эти «ворота» оно идёт натянутой нитью: изгибается только у углов узлов.
+        let (p0, pn) = (pts[0], pts[n0 - 1]);
+        let cross = |p: Pos2| p.to_vec2().dot(c_axis);
+        let mut gates = Vec::new();
+        for (k, &v) in chain.iter().enumerate().take(n0 - 1).skip(1) {
+            let half = max_main[ln[v].rank] / 2.0;
+            let (lo, hi) = band(v);
+            let along = (pts[k] - p0).dot(d);
+            if half < 1.0 {
+                gates.push((along, lo, hi));
+            } else {
+                gates.extend([(along - half, lo, hi), (along + half, lo, hi)]);
+            }
+        }
+        let mut path = taut((0.0, cross(p0)), ((pn - p0).dot(d), cross(pn)), &gates);
+        // Центр подписи — тоже точка пути: сглаженная кривая пройдёт ровно через него.
+        if let Some(&lv) = label_at.get(ei) {
+            let along = (pos_of(lv) - p0).dot(d);
+            let k = path.iter().position(|p| p.0 > along).unwrap_or(path.len() - 1).max(1);
+            path.insert(k, (along, x[lv]));
+        }
+        let route: Vec<Pos2> = path.iter().map(|&(m, c)| p0 + d * m + c_axis * (c - cross(p0))).collect();
+        let curve = smooth(&route, d);
         let (h_start, h_end) = if *rev { (e.head_to, e.head_from) } else { (e.head_from, e.head_to) };
         let (t_start, t_end) = if *rev { (&e.head_text, &e.tail_text) } else { (&e.tail_text, &e.head_text) };
         draw_edge(&mut scene, e, &curve, h_start, h_end, m);
@@ -643,14 +691,154 @@ fn port(shape: &Shape, r: Rect, d: Vec2, toward: Pos2) -> Pos2 {
     c + n * shift + d * (half_m - depth)
 }
 
-/// Гладкая кривая через точки: касательные везде направлены вдоль рангов.
-fn smooth(points: &[Pos2], d: Vec2) -> Vec<Pos2> {
-    let mut out = vec![points[0]];
-    for w in points.windows(2) {
-        let (p, q) = (w[0], w[1]);
-        let dm = (q - p).dot(d).abs().max(8.0);
-        out.extend([p + d * dm * 0.5, q - d * dm * 0.5, q]);
+/// Узел, который ребро должно обходить: настоящий узел или подпись ребра.
+fn solid(l: &LNode) -> bool {
+    l.real.is_some() || l.cross > 0.0
+}
+
+/// Слои раскладки и их положение вдоль рангов.
+struct Rows<'a> {
+    layers: &'a [Vec<usize>],
+    slot: &'a [usize],
+    ln: &'a [LNode],
+    rank_pos: &'a [f32],
+    max_main: &'a [f32],
+}
+
+/// Раскладывает фиктивные узлы длинных рёбер вдоль натянутой нити между концами ребра.
+/// Нить огибает настоящие узлы и подписи, а соседние рёбра только раздвигаются,
+/// сохраняя порядок в слое. Без этого ребро петляет от слоя к слою.
+fn straighten(chains: &[(Vec<usize>, usize, bool)], rows: &Rows, x: &mut [f32], gap: impl Fn(&LNode, &LNode) -> f32) {
+    let Rows { layers, slot, ln, rank_pos, max_main } = *rows;
+    let mut desired: Vec<Option<f32>> = vec![None; ln.len()];
+    for (chain, _, _) in chains {
+        if chain.len() < 3 {
+            continue;
+        }
+        let (a, b) = (chain[0], chain[chain.len() - 1]);
+        let start = (rank_pos[ln[a].rank] + ln[a].main / 2.0, x[a]);
+        let end = (rank_pos[ln[b].rank] - ln[b].main / 2.0, x[b]);
+        let mut gates = Vec::new();
+        for &v in &chain[1..chain.len() - 1] {
+            let r = ln[v].rank;
+            let (layer, k) = (&layers[r], slot[v]);
+            let (lo, hi) = if ln[v].cross > 0.0 {
+                (x[v], x[v])
+            } else {
+                let lo = layer[..k].iter().rev().find(|&&u| solid(&ln[u])).map_or(f32::NEG_INFINITY, |&u| x[u] + gap(&ln[u], &ln[v]));
+                let hi = layer[k + 1..].iter().find(|&&u| solid(&ln[u])).map_or(f32::INFINITY, |&u| x[u] - gap(&ln[v], &ln[u]));
+                if lo <= hi { (lo, hi) } else { (x[v], x[v]) }
+            };
+            let half = max_main[r] / 2.0;
+            if half < 1.0 {
+                gates.push((rank_pos[r], lo, hi));
+            } else {
+                gates.extend([(rank_pos[r] - half, lo, hi), (rank_pos[r] + half, lo, hi)]);
+            }
+        }
+        let path = taut(start, end, &gates);
+        for &v in &chain[1..chain.len() - 1] {
+            desired[v] = Some(at(&path, rank_pos[ln[v].rank]));
+        }
     }
+    for layer in layers {
+        if layer.iter().all(|&v| desired[v].is_none()) {
+            continue;
+        }
+        let want: Vec<f32> = layer.iter().map(|&v| desired[v].unwrap_or(x[v])).collect();
+        let weights: Vec<f32> = layer.iter().map(|&v| if desired[v].is_some() { 1.0 } else { 1000.0 }).collect();
+        let mut seps = vec![0.0; layer.len()];
+        for k in 1..layer.len() {
+            seps[k] = gap(&ln[layer[k - 1]], &ln[layer[k]]);
+        }
+        let placed = isotonic(&want, &weights, &seps);
+        for (k, &v) in layer.iter().enumerate() {
+            x[v] = placed[k];
+        }
+    }
+}
+
+/// Значение ломаной `(m, c)` на высоте `m`.
+fn at(path: &[(f32, f32)], m: f32) -> f32 {
+    for w in path.windows(2) {
+        let ((m0, c0), (m1, c1)) = (w[0], w[1]);
+        if m <= m1 {
+            let t = if m1 > m0 { ((m - m0) / (m1 - m0)).clamp(0.0, 1.0) } else { 1.0 };
+            return c0 + (c1 - c0) * t;
+        }
+    }
+    path.last().map_or(0.0, |p| p.1)
+}
+
+/// Кратчайший путь от `a` до `b` через ворота. Точки — `(m, c)`: `m` вдоль рангов, `c` поперёк.
+/// Ворота `(m, lo, hi)`: на высоте `m` путь проходит между `lo` и `hi`. Путь натягивается
+/// как нить и изгибается только на краях ворот, которые иначе пришлось бы пересечь.
+fn taut(a: (f32, f32), b: (f32, f32), gates: &[(f32, f32, f32)]) -> Vec<(f32, f32)> {
+    let mut out = vec![a];
+    let mut start = 0;
+    while let Some((k, corner)) = bend(out[out.len() - 1], b, &gates[start..]) {
+        out.push(corner);
+        start += k + 1;
+    }
+    out.push(b);
+    out
+}
+
+/// Первый изгиб нити, натянутой из `apex` к `b` через ворота: номер ворот и край, на котором
+/// нить перегибается. `None` — до `b` можно дотянуть прямо.
+fn bend(apex: (f32, f32), b: (f32, f32), gates: &[(f32, f32, f32)]) -> Option<(usize, (f32, f32))> {
+    // Допустимые наклоны из вершины и ворота, которые их ограничили.
+    let (mut lo_s, mut hi_s) = (f32::NEG_INFINITY, f32::INFINITY);
+    let (mut lo_k, mut hi_k) = (0, 0);
+    for j in 0..=gates.len() {
+        let (m, lo, hi) = if j < gates.len() { gates[j] } else { (b.0, b.1, b.1) };
+        let dm = (m - apex.0).max(1e-3);
+        let (sl, sh) = ((lo - apex.1) / dm, (hi - apex.1) / dm);
+        if sh < lo_s {
+            return Some((lo_k, (gates[lo_k].0, gates[lo_k].1)));
+        }
+        if sl > hi_s {
+            return Some((hi_k, (gates[hi_k].0, gates[hi_k].2)));
+        }
+        if sl > lo_s {
+            (lo_s, lo_k) = (sl, j);
+        }
+        if sh < hi_s {
+            (hi_s, hi_k) = (sh, j);
+        }
+    }
+    None
+}
+
+/// Гладкая кривая по ломаной ребра. Из узла и в узел ребро идёт вдоль рангов, а между
+/// ними сглаживается B-сплайном (как `curveBasis` в d3): кривая не обязана проходить
+/// через каждую точку, поэтому не виляет на каждом слое.
+fn smooth(points: &[Pos2], d: Vec2) -> Vec<Pos2> {
+    let n = points.len();
+    let (a, b) = (points[0], points[n - 1]);
+    let stub = |p: Pos2, q: Pos2| ((q - p).dot(d).abs() * 0.35).min(18.0);
+    let mut ctrl = vec![a, a + d * stub(a, points[1])];
+    ctrl.extend_from_slice(&points[1..n - 1]);
+    ctrl.extend([b - d * stub(points[n - 2], b), b]);
+
+    // Кубические сегменты Безье: p0, c1, c2, p1, …
+    let mut out = vec![a];
+    let line = |out: &mut Vec<Pos2>, q: Pos2| {
+        let p = *out.last().unwrap();
+        out.extend([p + (q - p) / 3.0, p + (q - p) * (2.0 / 3.0), q]);
+    };
+    line(&mut out, a + (ctrl[1] - a) / 6.0);
+    for w in ctrl.windows(3) {
+        let (p0, p1, p2) = (w[0].to_vec2(), w[1].to_vec2(), w[2].to_vec2());
+        out.extend([
+            ((p0 * 2.0 + p1) / 3.0).to_pos2(),
+            ((p0 + p1 * 2.0) / 3.0).to_pos2(),
+            ((p0 + p1 * 4.0 + p2) / 6.0).to_pos2(),
+        ]);
+    }
+    let (p0, p1) = (ctrl[ctrl.len() - 2].to_vec2(), b.to_vec2());
+    out.extend([((p0 * 2.0 + p1) / 3.0).to_pos2(), ((p0 + p1 * 2.0) / 3.0).to_pos2(), ((p0 + p1 * 5.0) / 6.0).to_pos2()]);
+    line(&mut out, b);
     out
 }
 
@@ -1213,6 +1401,7 @@ pub fn draw_node(scene: &mut Scene, nd: &Node, r: Rect, m: &dyn Measure) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagram::scene::flatten;
     use crate::diagram::text::Approx;
 
     #[test]
@@ -1235,5 +1424,81 @@ mod tests {
         g.edge(c, a).label = vec!["назад".into()];
         let s = layout(&g, &Approx);
         assert!(s.size.x > 0.0 && s.size.y > 0.0 && s.size.is_finite());
+    }
+
+
+    /// Схема со скриншота Холо: подпись на одном ребре даёт фиктивный узел каждому ребру,
+    /// а два ребра идут через два слоя мимо других узлов.
+    const LONG_EDGES: &str = "flowchart TD
+    H[Holotype: чтение, Спросить Мьюри]
+    R[RustLIDE: code, cargo, практика]
+    L[learn CLI]
+    E[learn-core: движок курса]
+    A[forma-assistant: мост к Claude Code]
+    C[claude с подпиской Холо]
+    V[Хранилище RustLearn]
+    H --> A
+    R --> A
+    R --> E
+    L --> E
+    L --> A
+    A --> C
+    E --> V
+    H --> V
+    C -->|читает| V";
+
+    fn curves(s: &Scene) -> Vec<Vec<Pos2>> {
+        s.prims.iter().filter_map(|p| if let Prim::Curve { pts, .. } = p { Some(flatten(pts)) } else { None }).collect()
+    }
+
+    #[test]
+    fn edges_do_not_wiggle() {
+        let (_, s) = crate::diagram::render("mermaid", LONG_EDGES, &Approx).unwrap();
+        let all = curves(&s);
+        assert_eq!(all.len(), 9);
+        for c in all {
+            // Поперёк рангов ребро движется в одну сторону: без лесенки и волн.
+            let right = c.windows(2).any(|w| w[1].x > w[0].x + 0.5);
+            let left = c.windows(2).any(|w| w[1].x < w[0].x - 0.5);
+            assert!(!(right && left), "ребро виляет: {c:?}");
+        }
+    }
+
+    #[test]
+    fn edges_go_around_nodes() {
+        let (_, s) = crate::diagram::render("mermaid", LONG_EDGES, &Approx).unwrap();
+        let nodes: Vec<Rect> = s
+            .prims
+            .iter()
+            .filter_map(|p| match p {
+                Prim::Rect { rect, fill, .. } if !matches!(fill, Paint::Role(Role::LabelBg)) => Some(rect.shrink(2.0)),
+                _ => None,
+            })
+            .collect();
+        for c in curves(&s) {
+            for p in &c {
+                assert!(nodes.iter().all(|r| !r.contains(*p)), "ребро задевает узел в {p:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn label_sits_on_its_edge() {
+        let src = "flowchart LR\n A[Start] --> B{Есть ошибка?}\n B -->|да| C[Читать diagnostic]\n B -->|нет| D[cargo run]\n C --> E[Исправить]\n E --> A\n D --> F[Готово]\n A --> F";
+        let (_, s) = crate::diagram::render("mermaid", src, &Approx).unwrap();
+        let all = curves(&s);
+        let labels: Vec<Pos2> = s
+            .prims
+            .iter()
+            .filter_map(|p| match p {
+                Prim::Rect { rect, fill: Paint::Role(Role::LabelBg), .. } => Some(rect.center()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(labels.len(), 2);
+        for l in labels {
+            let near = all.iter().flatten().map(|p| p.distance(l)).fold(f32::INFINITY, f32::min);
+            assert!(near < 1.5, "подпись в {l:?} не на ребре: ближайшая точка в {near}");
+        }
     }
 }

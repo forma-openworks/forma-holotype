@@ -179,6 +179,37 @@ def fib(n: int) -> int:
     return a
 ```
 
+### Консоль и логи
+
+Сеанс терминала — блок `console`: строки с `$ ` — команды, остальное — их вывод. Приглашение `$` только нарисовано и не копируется, кнопка «Копировать команды» берёт одни команды (у команды под указателем есть своя кнопка), а вывод Cargo и rustc раскрашен как в терминале. Папку в приглашении задаёт `cwd`:
+
+```console title="Сборка" cwd="~/hangar"
+# Собираем и запускаем
+$ cargo run --release
+   Compiling hangar v0.1.0 (~/hangar)
+warning: unused variable: `fuel`
+ --> src/main.rs:4:9
+  |
+4 |     let fuel = 120;
+  |         ^^^^
+    Finished `release` profile [optimized] target(s) in 2.31s
+     Running `target/release/hangar`
+Ангар открыт: 3 самолёта
+```
+
+Блок `log` приглушает время, подсвечивает источник и уровень, а строки WARN и ERROR окрашивает целиком. Длинные сеансы и логи сворачиваются после 12 строк: `lines=5` меняет порог, `open` показывает всё сразу. Обычный код сворачивается, только если указать `lines`.
+
+```log title="latest.log" lines=5
+[13:36:20] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.5
+[13:36:21] [main/INFO]: Loading 42 mods
+[13:36:24] [main/WARN]: Reference map 'holo.refmap.json' could not be read
+[13:36:25] [modloading-worker-0/INFO] [holo_rails/]: Loaded 12 rails
+[13:36:26] [Render thread/ERROR]: Failed to load texture holo_rails:block/rail_switch
+    at net.minecraft.client.texture.TextureManager.loadTexture(TextureManager.java:84)
+[13:36:27] [Render thread/INFO]: Sound engine started
+2026-10-12T10:00:00Z  WARN hangar::net: slow handshake with 10.0.0.7
+```
+
 ## Таблицы
 
 | Хук | Для чего нужен | Где изучаем |

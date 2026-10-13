@@ -39,6 +39,8 @@ accent = "#9684ff"
 "note.table.head" = "#191b22"
 "note.table.line" = "#343844"
 "note.card.bg" = "#1e2128"
+"note.term.info" = "#7aa2f7"
+"note.term.hint" = "#7dcfff"
 
 [syntax]
 comment = { color = "#7a86b6", italic = true }

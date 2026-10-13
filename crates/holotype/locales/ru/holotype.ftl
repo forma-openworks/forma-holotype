@@ -219,6 +219,22 @@ code-copy = Копировать
 code-copied = Скопировано
 code-view-code = Код
 code-view-diagram = Диаграмма
+code-copy-commands = Копировать команды
+code-copy-command = Копировать команду
+code-copy-log = Копировать лог
+code-lines = { $count ->
+    [one] { $count } строка
+    [few] { $count } строки
+    [many] { $count } строк
+   *[other] { $count } строки
+}
+code-show-more = { $count ->
+    [one] Показать ещё { $count } строку
+    [few] Показать ещё { $count } строки
+    [many] Показать ещё { $count } строк
+   *[other] Показать ещё { $count } строки
+}
+code-collapse = Свернуть
 
 callout-abstract = Кратко
 callout-info = Информация
@@ -281,6 +297,8 @@ lang-shaders = Шейдеры { $name }
 lang-text = Текст
 lang-mermaid = Диаграмма Mermaid
 lang-dot = Граф Graphviz
+lang-console = Консоль
+lang-log = Лог
 
 color-red = красный
 color-orange = оранжевый

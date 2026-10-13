@@ -9,6 +9,7 @@ use std::sync::OnceLock;
 use crate::diagram;
 use crate::highlight;
 use crate::markdown::{self, Align, Block, CodeBlock, Doc, Inline, LinkKind, Style};
+use crate::term;
 use crate::theme;
 use crate::vault::Vault;
 use forma_i18n::t;
@@ -165,13 +166,16 @@ fn page(title: &str, vault: &str, head: &str, nav: &str, body: &str, math: bool,
 const f=document.getElementById('nav-filter');
 if(f){{f.addEventListener('input',()=>{{const q=f.value.toLowerCase();document.querySelectorAll('.nav a').forEach(a=>{{a.parentElement.style.display=a.textContent.toLowerCase().includes(q)?'':'none';}});}});}}
 document.querySelectorAll('.code').forEach(block=>{{
-  const tabs=[...block.querySelectorAll('.code-tab')];
+  const tabs=[...block.querySelectorAll('.code-tabs .code-tab')];
   const bodies=[...block.querySelectorAll('.code-body')];
   const title=block.querySelector('.code-title');
+  const copy=block.querySelector('.code-copy');
   tabs.forEach((t,i)=>t.addEventListener('click',()=>{{
     tabs.forEach(x=>x.classList.toggle('active',x===t));
     bodies.forEach((b,j)=>b.hidden=j!==i);
+    block.querySelectorAll('.code-head [data-tab]').forEach(e=>e.hidden=e.dataset.tab!=i);
     if(title)title.textContent=t.dataset.title||'';
+    if(copy&&bodies[i])copy.textContent=bodies[i].dataset.label;
   }}));
   const views=[...block.querySelectorAll('.view-tab')];
   views.forEach((v,i)=>v.addEventListener('click',()=>{{
@@ -179,12 +183,22 @@ document.querySelectorAll('.code').forEach(block=>{{
     block.querySelectorAll('.diagram').forEach(d=>d.hidden=i===1);
     block.querySelectorAll('.diagram-src').forEach(d=>d.hidden=i===0);
   }}));
-  const copy=block.querySelector('.code-copy');
   if(copy)copy.addEventListener('click',()=>{{
     const body=bodies.find(b=>!b.hidden)||bodies[0];
-    navigator.clipboard.writeText(body.querySelector('.src').innerText);
-    copy.textContent='✔ Скопировано';
-    setTimeout(()=>copy.textContent='⧉ Копировать',1500);
+    navigator.clipboard.writeText(body.dataset.copy??body.querySelector('.src').innerText);
+    copy.textContent=copy.dataset.done;
+    setTimeout(()=>copy.textContent=body.dataset.label,1500);
+  }});
+  // Длинные блоки сворачиваем только со скриптом: без него всё видно целиком.
+  block.querySelectorAll('.code-more').forEach(btn=>{{
+    const body=btn.parentElement;
+    const label=btn.querySelector('span');
+    body.classList.add('collapsed');
+    btn.hidden=false;
+    btn.addEventListener('click',()=>{{
+      const collapsed=body.classList.toggle('collapsed');
+      label.textContent=collapsed?btn.dataset.more:btn.dataset.less;
+    }});
   }});
 }});
 </script>
@@ -542,22 +556,47 @@ fn text(out: &mut String, t: &str, st: &Style) {
     }
 }
 
-/// Блок кода или группа блоков с вкладками: шапка, номера строк, подсветка.
+/// Значки шапки консоли и лога (Lucide, ISC) — те же, что в программе.
+const CONSOLE_ICON: &str = include_str!("../icons/lucide/square-terminal.svg");
+const LOG_ICON: &str = include_str!("../icons/lucide/logs.svg");
+const CHEVRON: &str = r#"<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>"#;
+
+/// Подпись блока в шапке: `title=…`, у лога — «log», у диаграммы — её вид.
+fn code_title(cb: &CodeBlock, diagram: Option<diagram::Kind>, tabs: bool) -> String {
+    if let Some(t) = &cb.title {
+        return t.clone();
+    }
+    match term::kind(&cb.lang) {
+        term::Kind::Log => "log".to_owned(),
+        term::Kind::Console => String::new(),
+        term::Kind::Code => match diagram {
+            Some(k) => k.title().to_owned(),
+            None if tabs => String::new(),
+            None => highlight::display_name(&cb.lang),
+        },
+    }
+}
+
+/// Блок кода или группа блоков с вкладками: шапка, номера строк, подсветка. Консоль
+/// и лог — со своей шапкой и раскраской. Длинный блок сворачивает скрипт страницы,
+/// так что без JS он виден целиком.
 fn code_html(out: &mut String, group: &[CodeBlock]) {
     if group.is_empty() {
         return;
     }
     let tabs = group.len() > 1 || group[0].tab.is_some();
+    let hidden = |i: usize| if i == 0 { "" } else { " hidden" };
     out.push_str("<div class=\"code\"><div class=\"code-head\">");
     if tabs {
         out.push_str("<div class=\"code-tabs\">");
         for (i, cb) in group.iter().enumerate() {
             let label = cb.tab.clone().unwrap_or_else(|| highlight::display_name(&cb.lang));
+            let title = if term::kind(&cb.lang) == term::Kind::Code { cb.title.clone().unwrap_or_default() } else { code_title(cb, None, true) };
             let _ = write!(
                 out,
                 "<button class=\"code-tab{}\" data-title=\"{}\">{}</button>",
                 if i == 0 { " active" } else { "" },
-                esc(cb.title.as_deref().unwrap_or("")),
+                esc(&title),
                 esc(&label)
             );
         }
@@ -573,36 +612,184 @@ fn code_html(out: &mut String, group: &[CodeBlock]) {
             diagram::render(&cb.lang, &cb.code, &diagram::Approx).ok().map(|(k, scene)| (k, scene.to_svg()))
         })
         .collect();
-    let first_title = group[0].title.clone().unwrap_or_else(|| match &diagrams[0] {
-        Some((k, _)) => k.title().to_owned(),
-        None if tabs => String::new(),
-        None => highlight::display_name(&group[0].lang),
-    });
+    // Значок и плашка у консоли и лога — свои у каждой вкладки.
+    for (i, cb) in group.iter().enumerate() {
+        let icon = match term::kind(&cb.lang) {
+            term::Kind::Console => CONSOLE_ICON,
+            term::Kind::Log => LOG_ICON,
+            term::Kind::Code => continue,
+        };
+        // Без строки лицензии и лишних пробелов: значок встраивается в каждый блок.
+        let icon = icon[icon.find("<svg").unwrap_or(0)..].split_whitespace().collect::<Vec<_>>().join(" ");
+        let _ = write!(out, "<span class=\"code-icon\" data-tab=\"{i}\"{}>{icon}</span>", hidden(i));
+    }
+    let first_title = code_title(&group[0], diagrams[0].as_ref().map(|(k, _)| *k), tabs);
     let _ = write!(out, "<span class=\"code-title\">{}</span>", esc(&first_title));
+    for (i, cb) in group.iter().enumerate() {
+        let badge = match term::kind(&cb.lang) {
+            term::Kind::Console => "bash".to_owned(),
+            term::Kind::Log => t!("code-lines", count = term::line_count(&cb.code)),
+            term::Kind::Code => continue,
+        };
+        let _ = write!(out, "<span class=\"code-badge\" data-tab=\"{i}\"{}>{}</span>", hidden(i), esc(&badge));
+    }
     if diagrams.iter().any(Option::is_some) {
         let _ = write!(out, "<span class=\"view-tabs\"><button class=\"code-tab view-tab active\">{}</button><button class=\"code-tab view-tab\">{}</button></span>", esc(&t!("code-view-diagram")), esc(&t!("code-view-code")));
     }
-    let _ = write!(out, "<button class=\"code-copy\">⧉ {}</button></div>", esc(&t!("code-copy")));
+    let copy_label = |cb: &CodeBlock| {
+        let label = match term::kind(&cb.lang) {
+            term::Kind::Console => t!("code-copy-commands"),
+            term::Kind::Log => t!("code-copy-log"),
+            term::Kind::Code => t!("code-copy"),
+        };
+        format!("⧉ {label}")
+    };
+    let _ = write!(
+        out,
+        "<button class=\"code-copy\" data-done=\"✔ {}\">{}</button></div>",
+        esc(&t!("code-copied")),
+        esc(&copy_label(&group[0]))
+    );
     for (i, cb) in group.iter().enumerate() {
-        let lines = cb.code.lines().count().max(1);
+        let label = esc(&copy_label(cb));
         if let Some((_, svg)) = &diagrams[i] {
-            let _ = write!(out, "<div class=\"code-body\"{}><div class=\"diagram\">{svg}</div>", if i == 0 { "" } else { " hidden" });
+            let _ = write!(out, "<div class=\"code-body\" data-label=\"{label}\"{}><div class=\"diagram\">{svg}</div>", hidden(i));
             let _ = write!(out, "<pre class=\"src diagram-src\" hidden><code>{}</code></pre></div>", esc(&cb.code));
             continue;
         }
-        let _ = write!(out, "<div class=\"code-body\"{}>", if i == 0 { "" } else { " hidden" });
-        if lines >= 2 {
-            let numbers: Vec<String> = (1..=lines).map(|n| n.to_string()).collect();
-            let _ = write!(out, "<pre class=\"gutter\" aria-hidden=\"true\">{}</pre>", numbers.join("\n"));
+        let kind = term::kind(&cb.lang);
+        let total = term::line_count(&cb.code);
+        let mut style = String::new();
+        let mut attrs = String::new();
+        if let Some(n) = term::collapse_at(cb) {
+            let _ = write!(attrs, " data-shown=\"{n}\"");
+            let _ = write!(style, "--shown:{n};");
         }
-        out.push_str("<pre class=\"src\"><code>");
-        match highlight::html(&cb.code, &cb.lang) {
-            Some(html) => out.push_str(&html),
-            None => out.push_str(&esc(&cb.code)),
+        let class = match kind {
+            term::Kind::Code => "code-body",
+            term::Kind::Console => {
+                let _ = write!(attrs, " data-copy=\"{}\"", esc(&term::commands_text(&cb.code)));
+                "code-body term-console"
+            }
+            term::Kind::Log => {
+                let _ = write!(attrs, " data-copy=\"{}\"", esc(&cb.code));
+                let _ = write!(style, "--gw:{}ch;", total.to_string().len());
+                "code-body term-log"
+            }
+        };
+        if !style.is_empty() {
+            let _ = write!(attrs, " style=\"{style}\"");
         }
-        out.push_str("</code></pre></div>");
+        let _ = write!(out, "<div class=\"{class}\" data-label=\"{label}\"{attrs}{}>", hidden(i));
+        match kind {
+            term::Kind::Code => {
+                if total >= 2 {
+                    let numbers: Vec<String> = (1..=total).map(|n| n.to_string()).collect();
+                    let _ = write!(out, "<pre class=\"gutter\" aria-hidden=\"true\">{}</pre>", numbers.join("\n"));
+                }
+                out.push_str("<pre class=\"src\"><code>");
+                match highlight::html(&cb.code, &cb.lang) {
+                    Some(html) => out.push_str(&html),
+                    None => out.push_str(&esc(&cb.code)),
+                }
+                out.push_str("</code></pre>");
+            }
+            term::Kind::Console => console_html(out, cb),
+            term::Kind::Log => log_html(out, &cb.code),
+        }
+        if let Some(n) = term::collapse_at(cb) {
+            let more = esc(&t!("code-show-more", count = total - n));
+            let less = esc(&t!("code-collapse"));
+            let _ = write!(out, "<button class=\"code-more\" hidden data-more=\"{more}\" data-less=\"{less}\">{CHEVRON}<span>{more}</span></button>");
+        }
+        out.push_str("</div>");
     }
     out.push_str("</div>");
+}
+
+/// Сеанс консоли: приглашение — пустой `<span class="pr">`, его рисует CSS, поэтому при
+/// копировании текста страницы `$` не попадает в буфер.
+fn console_html(out: &mut String, cb: &CodeBlock) {
+    let lines = term::console_lines(&cb.code);
+    let commands = term::commands(&lines);
+    let mut next_cmd = commands.iter();
+    let cwd = cb.cwd.as_deref().map(|c| format!(" data-cwd=\"{}\"", esc(c))).unwrap_or_default();
+    let mut level = None;
+    let mut i = 0;
+    out.push_str("<pre class=\"src\"><code>");
+    while i < lines.len() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let line = lines[i];
+        match line.kind {
+            term::LineKind::Command => {
+                let Some(c) = next_cmd.next() else { break };
+                level = None;
+                let code = highlight::html(&c.text, "bash").unwrap_or_else(|| esc(&c.text));
+                let _ = write!(out, "<span class=\"cmd\"><span class=\"pr\"{cwd}></span>{code}</span>");
+                i = c.lines.end;
+                continue;
+            }
+            term::LineKind::Comment => {
+                let _ = write!(out, "<span class=\"cmt\">{}</span>", esc(line.text));
+            }
+            term::LineKind::Continuation | term::LineKind::Output => {
+                out.push_str("<span class=\"out\">");
+                let mut at = 0;
+                for (r, tone) in term::output_spans(line.text, &mut level) {
+                    let class = match tone {
+                        term::Tone::Status => "t-st",
+                        term::Tone::Error => "t-err",
+                        term::Tone::Warning => "t-warn",
+                        term::Tone::Hint => "t-hint",
+                        term::Tone::Message => "t-msg",
+                        term::Tone::Gutter => "t-gut",
+                        term::Tone::Added => "t-add",
+                    };
+                    let _ = write!(out, "{}<span class=\"{class}\">{}</span>", esc(&line.text[at..r.start]), esc(&line.text[r.clone()]));
+                    at = r.end;
+                }
+                out.push_str(&esc(&line.text[at..]));
+                out.push_str("</span>");
+            }
+        }
+        i += 1;
+    }
+    out.push_str("</code></pre>");
+}
+
+/// Лог: каждая строка — блок с номером в `::before`; длинные строки переносятся под текст.
+fn log_html(out: &mut String, code: &str) {
+    out.push_str("<pre class=\"src\"><code>");
+    let mut prev = None;
+    for (i, line) in term::lines(code).enumerate() {
+        let parsed = term::log_line(line, prev);
+        prev = parsed.level;
+        let _ = write!(out, "<span class=\"ll\" data-n=\"{}\">", i + 1);
+        for (r, tone) in parsed.spans {
+            let class = match tone {
+                term::LogTone::Plain => None,
+                term::LogTone::Time => Some("l-time"),
+                term::LogTone::Group => Some("l-grp"),
+                term::LogTone::Level(term::Level::Trace) => Some("l-lv l-trace"),
+                term::LogTone::Level(term::Level::Debug) => Some("l-lv l-debug"),
+                term::LogTone::Level(term::Level::Info) => Some("l-lv l-info"),
+                term::LogTone::Level(term::Level::Warn) => Some("l-lv l-warn"),
+                term::LogTone::Level(term::Level::Error) => Some("l-lv l-err"),
+                term::LogTone::Tinted(term::Level::Error) => Some("l-te"),
+                term::LogTone::Tinted(_) => Some("l-tw"),
+            };
+            match class {
+                Some(c) => {
+                    let _ = write!(out, "<span class=\"{c}\">{}</span>", esc(&line[r]));
+                }
+                None => out.push_str(&esc(&line[r])),
+            }
+        }
+        out.push_str("</span>");
+    }
+    out.push_str("</code></pre>");
 }
 
 fn image(ctx: &mut Ctx<'_>, out: &mut String, src: &str, alt: &str, width: Option<f32>, wiki: bool) {
@@ -700,6 +887,7 @@ const BASE_CSS: &str = r#"
   --dg-node-fill: #f2f0fd; --dg-node-stroke: #6c54e6; --dg-text: #282c34; --dg-muted: #5c6370; --dg-edge: #6e747f;
   --dg-bg: #f8f9fb; --dg-cluster-fill: #f6f5fe; --dg-cluster-stroke: #c1bcf0; --dg-note-fill: #fcf1d9;
   --dg-note-stroke: #f7c353; --dg-accent: #6c54e6; --dg-strong: #111318; --dg-actor-fill: #e9e6fb;
+  --t-ok: #16a34a; --t-warn: #ca8a04; --t-err: #dc2626; --t-info: #2563eb; --t-hint: #0e7490;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -710,6 +898,7 @@ const BASE_CSS: &str = r#"
     --dg-node-fill: #25233c; --dg-node-stroke: #8273dc; --dg-text: #dcdfe4; --dg-muted: #a0a6b2; --dg-edge: #8f949f;
     --dg-bg: #0f1117; --dg-cluster-fill: #161723; --dg-cluster-stroke: #4b4a70; --dg-note-fill: #342b1a;
     --dg-note-stroke: #a57b22; --dg-accent: #9684ff; --dg-strong: #f4f5f8; --dg-actor-fill: #2d2a4a;
+    --t-ok: #4ade80; --t-warn: #fbbf24; --t-err: #f87171; --t-info: #7aa2f7; --t-hint: #7dcfff;
   }
 }
 * { box-sizing: border-box; }
@@ -761,12 +950,45 @@ kbd { font: 600 .8em "Segoe UI", system-ui, sans-serif; color: var(--heading); b
 .code-copy { margin-left: auto; font: 600 .8rem "Segoe UI", system-ui, sans-serif; color: var(--muted); background: transparent;
   border: none; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .code-copy:hover { color: var(--heading); background: color-mix(in srgb, var(--border) 50%, transparent); }
-.code-body { display: flex; padding: 14px 16px 14px 14px; }
+.code-body { display: flex; flex-wrap: wrap; padding: 14px 16px 14px 14px; --lh: 1.7; }
 .code-body[hidden] { display: none; }
-.code-body pre { margin: 0; line-height: 1.7; font-size: .86rem; }
+.code-body pre { margin: 0; line-height: var(--lh); font-size: .86rem; }
 .code-body .gutter { color: var(--gutter); text-align: right; padding-right: 1.1em; user-select: none; }
 .code-body .src { overflow-x: auto; flex: 1; }
 .view-tabs { display: flex; gap: 6px; margin-left: auto; }
+.code-head [hidden] { display: none; }
+.code-icon { display: inline-flex; color: var(--muted); }
+.code-icon svg { width: 15px; height: 15px; }
+.code-badge { font: 600 .72rem "Segoe UI", system-ui, sans-serif; color: var(--muted); border-radius: 5px; padding: 1px 7px;
+  background: color-mix(in srgb, var(--code-border) 80%, var(--code-head)); }
+/* Консоль: приглашение рисует CSS — при копировании текста страницы его нет. */
+.term-console { --lh: 1.6; }
+.term-console .pr { user-select: none; }
+.term-console .pr[data-cwd]::before { content: attr(data-cwd) " "; color: color-mix(in srgb, var(--t-info) 65%, var(--muted)); }
+.term-console .pr::after { content: "$ "; color: var(--t-ok); font-weight: 700; }
+.term-console .out { color: color-mix(in srgb, var(--text) 82%, var(--code-bg)); }
+.term-console .cmt { color: var(--faint); }
+.t-st, .t-err, .t-warn, .t-hint, .t-msg, .t-gut { font-weight: 700; }
+.t-st, .t-add { color: var(--t-ok); } .t-err { color: var(--t-err); } .t-warn { color: var(--t-warn); }
+.t-hint { color: var(--t-hint); } .t-msg { color: var(--heading); } .t-gut { color: var(--t-info); }
+/* Лог: номер строки в ::before, длинные строки переносятся под начало текста. */
+.term-log { --lh: 1.5; }
+.term-log .src { white-space: pre-wrap; overflow-wrap: anywhere; }
+.term-log .ll { display: block; position: relative; min-height: calc(var(--lh) * 1em); padding-left: calc(var(--gw) + 1.1em); }
+.term-log .ll::before { content: attr(data-n); position: absolute; left: 0; width: var(--gw); text-align: right; color: var(--gutter); user-select: none; }
+.l-time { color: var(--faint); } .l-grp { color: color-mix(in srgb, var(--accent) 55%, var(--muted)); }
+.l-lv { font-weight: 700; } .l-trace { color: var(--faint); } .l-debug { color: color-mix(in srgb, var(--accent) 65%, var(--faint)); }
+.l-info { color: var(--t-info); } .l-warn { color: var(--t-warn); } .l-err { color: var(--t-err); }
+.l-tw { color: color-mix(in srgb, var(--t-warn) 80%, var(--text)); } .l-te { color: color-mix(in srgb, var(--t-err) 85%, var(--text)); }
+/* Свёрнутый блок: первые строки, низ растворяется в фоне. */
+.code-body.collapsed pre { max-height: calc(var(--shown) * var(--lh) * 1em); overflow-y: hidden;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 3.2em), transparent); }
+.code-more { flex: 0 0 calc(100% + 30px); margin: 12px -16px -14px -14px; display: flex; justify-content: center; align-items: center;
+  gap: 6px; padding: 7px; border: none; border-top: 1px solid var(--code-border); background: transparent; color: var(--muted);
+  font: 600 .8rem "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.code-more[hidden] { display: none; }
+.code-more:hover { color: var(--heading); background: color-mix(in srgb, var(--border) 35%, transparent); }
+.code-body:not(.collapsed) .code-more svg { transform: rotate(180deg); }
 .view-tabs + .code-copy { margin-left: 4px; }
 .diagram { flex: 1; overflow-x: auto; text-align: center; }
 .diagram[hidden], .diagram-src[hidden] { display: none; }
@@ -850,6 +1072,7 @@ mod tests {
         let md = std::fs::read_to_string(out.join("Справка").join("Возможности Markdown.html")).unwrap();
         assert!(md.contains("class=\"callout\""));
         assert!(md.contains("class=\"internal\""));
+        assert!(md.contains("code-body term-console") && md.contains("code-body term-log"));
         assert!(out.join("Вложения").join("обложка.png").exists());
         let dg = std::fs::read_to_string(out.join("Справка").join("Диаграммы.html")).unwrap();
         assert_eq!(dg.matches("<svg class=\"dg\"").count(), 7, "все диаграммы справки должны стать SVG");
@@ -859,6 +1082,82 @@ mod tests {
         if keep.is_none() {
             let _ = std::fs::remove_dir_all(&base);
         }
+    }
+
+    fn html_of(src: &str) -> String {
+        crate::i18n::init();
+        let doc = markdown::parse(src);
+        let mut out = String::new();
+        for b in &doc.blocks {
+            match b {
+                Block::Code(cb) => code_html(&mut out, std::slice::from_ref(cb)),
+                Block::CodeGroup(g) => code_html(&mut out, g),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn console_block_html() {
+        let mut src = String::from("```console title=\"Сборка\" cwd=\"~/hangar\"\n# Собираем\n$ cargo build \\\n    --release\n");
+        for i in 0..12 {
+            src.push_str(&format!("   Compiling crate{i} v0.1.0\n"));
+        }
+        src.push_str("error[E0425]: cannot find value `x`\n$ cargo run\n```");
+        let html = html_of(&src);
+        assert!(html.contains("class=\"code-body term-console\""));
+        assert!(html.contains("<span class=\"code-title\">Сборка</span>"));
+        assert!(html.contains("<span class=\"code-badge\" data-tab=\"0\">bash</span>"));
+        assert!(html.contains("⧉ Копировать команды"));
+        // Приглашение — пустой span (его рисует CSS), в тексте блока `$` нет.
+        assert!(html.contains("<span class=\"pr\" data-cwd=\"~/hangar\"></span>"));
+        assert!(!html.contains("$ cargo"));
+        assert!(html.contains("data-copy=\"cargo build \\\n    --release\ncargo run\""));
+        assert!(html.contains("<span class=\"cmt\"># Собираем</span>"));
+        assert!(html.contains("<span class=\"t-st\">Compiling</span>"));
+        assert!(html.contains("<span class=\"t-err\">error[E0425]</span>"));
+        // 17 строк > 12: сворачивает скрипт, а без него всё видно.
+        assert!(html.contains("data-shown=\"12\""));
+        assert!(html.contains("data-more=\"Показать ещё 5 строк\""));
+        assert!(html.contains("data-less=\"Свернуть\""));
+        assert!(html.contains("<button class=\"code-more\" hidden"));
+        assert!(!html.contains("collapsed"), "без JS блок развёрнут");
+        // Флаг open — не сворачивать.
+        let open = html_of(&src.replace("cwd=\"~/hangar\"", "open"));
+        assert!(!open.contains("data-shown") && !open.contains("code-more"));
+    }
+
+    #[test]
+    fn log_block_html() {
+        let html = html_of("```log lines=1\n[13:36:24] [main/WARN]: Reference map could not be read\n[13:36:25] [main/INFO]: Done & ok\n```");
+        assert!(html.contains("class=\"code-body term-log\""));
+        assert!(html.contains("<span class=\"code-title\">log</span>"));
+        assert!(html.contains(">2 строки</span>"));
+        assert!(html.contains("⧉ Копировать лог"));
+        assert!(html.contains("style=\"--shown:1;--gw:1ch;\""));
+        assert!(html.contains("<span class=\"ll\" data-n=\"1\"><span class=\"l-time\">[13:36:24]</span>"));
+        assert!(html.contains("<span class=\"l-lv l-warn\">WARN</span>"));
+        assert!(html.contains("<span class=\"l-tw\">Reference map could not be read</span>"));
+        assert!(html.contains("<span class=\"l-lv l-info\">INFO</span>"));
+        assert!(html.contains("Done &amp; ok"));
+        assert!(html.contains("data-more=\"Показать ещё 1 строку\""));
+        // Копируется весь лог как есть.
+        assert!(html.contains("data-copy=\"[13:36:24] [main/WARN]: Reference map could not be read\n[13:36:25] [main/INFO]: Done &amp; ok\""));
+    }
+
+    #[test]
+    fn plain_code_collapses_only_with_lines() {
+        let code: String = (1..=20).map(|i| format!("let x{i} = {i};\n")).collect();
+        assert!(!html_of(&format!("```rust\n{code}```")).contains("data-shown"));
+        let html = html_of(&format!("```rust lines=5\n{code}```"));
+        assert!(html.contains("data-shown=\"5\""));
+        assert!(html.contains("Показать ещё 15 строк"));
+        // Вкладки: у каждой свой ярлык кнопки копирования, значок и плашка — только у консоли.
+        let html = html_of("```rust tab=\"Код\"\nfn main() {}\n```\n\n```console tab=\"Запуск\"\n$ cargo run\n```");
+        assert!(html.contains("data-label=\"⧉ Копировать\""));
+        assert!(html.contains("data-label=\"⧉ Копировать команды\""));
+        assert!(html.contains("<span class=\"code-icon\" data-tab=\"1\" hidden>"));
     }
 
     #[test]

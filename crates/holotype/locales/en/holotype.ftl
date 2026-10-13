@@ -216,6 +216,18 @@ code-copy = Copy
 code-copied = Copied
 code-view-code = Code
 code-view-diagram = Diagram
+code-copy-commands = Copy commands
+code-copy-command = Copy command
+code-copy-log = Copy log
+code-lines = { $count ->
+    [one] { $count } line
+   *[other] { $count } lines
+}
+code-show-more = { $count ->
+    [one] Show { $count } more line
+   *[other] Show { $count } more lines
+}
+code-collapse = Collapse
 
 callout-abstract = Summary
 callout-info = Info
@@ -274,6 +286,8 @@ lang-shaders = { $name } shaders
 lang-text = Text
 lang-mermaid = Mermaid diagram
 lang-dot = Graphviz graph
+lang-console = Console
+lang-log = Log
 
 color-red = red
 color-orange = orange

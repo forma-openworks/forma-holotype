@@ -58,6 +58,8 @@ shadow = "#0000002a"
 "note.table.head" = "#f4f5f8"
 "note.table.line" = "#e2e5eb"
 "note.card.bg" = "#fafafc"
+"note.term.info" = "#2563eb"
+"note.term.hint" = "#0e7490"
 
 [syntax]
 comment = { color = "#8088a0", italic = true }

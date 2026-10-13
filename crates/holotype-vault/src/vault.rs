@@ -287,7 +287,11 @@ impl Vault {
                 let lower = line.to_lowercase();
                 // Диапазоны переносим на исходную строку, только если длины в байтах совпадают.
                 if lower.len() == line.len() && lower.contains(&ql) {
-                    let ranges: Vec<(usize, usize)> = lower.match_indices(&ql).map(|(s, m)| (s, s + m.len())).collect();
+                    let mut ranges: Vec<(usize, usize)> = lower.match_indices(&ql).map(|(s, m)| (s, s + m.len())).collect();
+                    // Равная длина ещё не значит равные границы: 'İ' удлиняется, а 'Ω' (знак Ома) укорачивается.
+                    if !ranges.iter().all(|&(s, e)| line.is_char_boundary(s) && line.is_char_boundary(e)) {
+                        ranges.clear();
+                    }
                     let (text, ranges) = clip_line(line, &ranges);
                     hits.push(SearchHit { note: i, text, ranges, offset });
                     per_note += 1;
@@ -583,5 +587,24 @@ mod tests {
     fn sanitize() {
         assert_eq!(sanitize_name("  a/b:c?  "), "a b c");
         assert!(!sanitize_name("...").is_empty(), "пустое имя заменяется подписью «Без названия»");
+    }
+
+    #[test]
+    fn search_ranges_on_char_boundaries() {
+        let note = |rel: &str, content: &str| Note::from_content(PathBuf::from(rel), content.to_owned(), None);
+        let vault = Vault {
+            root: PathBuf::new(),
+            notes: vec![note("a.md", "İ\u{2126}i"), note("b.md", "Привет, МИР")],
+            folders: Vec::new(),
+            attachments: Vec::new(),
+            generation: 1,
+        };
+        // Длина строки после to_lowercase та же, но границы символов сдвинуты — подсветки нет, падения тоже.
+        for hit in vault.search("i", 10).iter().chain(&vault.search("мир", 10)) {
+            assert!(hit.ranges.iter().all(|&(s, e)| hit.text.is_char_boundary(s) && hit.text.is_char_boundary(e)), "{:?}", hit.ranges);
+        }
+        let hits = vault.search("мир", 10);
+        assert_eq!(hits[0].ranges.len(), 1, "кириллица без сдвигов подсвечивается как раньше");
+        assert_eq!(&hits[0].text[hits[0].ranges[0].0..hits[0].ranges[0].1], "МИР");
     }
 }

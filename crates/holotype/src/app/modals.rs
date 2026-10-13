@@ -92,7 +92,9 @@ fn quick_open(ui: &mut Ui, pal: &Palette, vault: &Vault, query: &mut String, sel
         .collect();
     results.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| vault.notes[a.1].name.cmp(&vault.notes[b.1].name)));
     results.truncate(12);
-    let can_create = !query.trim().is_empty() && !vault.notes.iter().any(|n| n.name.eq_ignore_ascii_case(query.trim()));
+    // Регистр сравниваем как `Vault::resolve` — с кириллицей.
+    let lower = query.trim().to_lowercase();
+    let can_create = !lower.is_empty() && !vault.notes.iter().any(|n| n.name.to_lowercase() == lower);
     let total = results.len() + usize::from(can_create);
     let (down, up, enter, ctrl) = ui.input_mut(|i| {
         (i.consume_key(Modifiers::NONE, Key::ArrowDown), i.consume_key(Modifiers::NONE, Key::ArrowUp), i.key_pressed(Key::Enter), i.modifiers.command)

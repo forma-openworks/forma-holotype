@@ -29,6 +29,8 @@ lucide! {
     "demo" => "sparkles",
     "info-panel" => "panel-right",
     "snippet" => "text-cursor-input",
+    "console" => "square-terminal",
+    "log" => "logs",
 }
 
 /// Добавляет значки заметок к значкам платформы. Вызывать при запуске.

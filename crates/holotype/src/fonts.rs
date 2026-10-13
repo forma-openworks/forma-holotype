@@ -15,6 +15,11 @@ pub fn has_italic() -> bool {
     forma_ui::fonts::ui_has_italic()
 }
 
+/// Жирный моноширинный — начертание шрифта редактора (вывод cargo в консоли).
+pub fn mono_bold() -> FontFamily {
+    forma_ui::fonts::editor(true, false)
+}
+
 /// Шрифт для формул: цифры, операторы, большие символы.
 pub fn math() -> FontFamily {
     FontFamily::Name("math".into())

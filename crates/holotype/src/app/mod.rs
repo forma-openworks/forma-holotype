@@ -352,7 +352,7 @@ impl HolotypeApp {
                 let offset = from
                     .as_ref()
                     .and_then(|rel| self.docs.get_or_load(vault, rel))
-                    .and_then(|d| d.parsed().headings.iter().find(|x| x.text.eq_ignore_ascii_case(&h)).map(|x| x.offset));
+                    .and_then(|d| d.parsed().headings.iter().find(|x| markdown::same_heading(&x.text, &h)).map(|x| x.offset));
                 let view = self.views.entry(id).or_default();
                 view.preview_scroll = Some(h.to_lowercase());
                 view.editor_jump = offset;
@@ -362,7 +362,7 @@ impl HolotypeApp {
         match vault.resolve(target, from.as_deref()) {
             Some(idx) => {
                 let rel = vault.notes[idx].rel.clone();
-                let offset = heading.as_ref().and_then(|h| vault.notes[idx].headings.iter().find(|x| x.text.eq_ignore_ascii_case(h)).map(|x| x.offset));
+                let offset = heading.as_ref().and_then(|h| vault.notes[idx].headings.iter().find(|x| markdown::same_heading(&x.text, h)).map(|x| x.offset));
                 self.open_note(rel, new_tab, tab);
                 if let (Some(h), Some(id)) = (heading, self.current) {
                     let view = self.views.entry(id).or_default();

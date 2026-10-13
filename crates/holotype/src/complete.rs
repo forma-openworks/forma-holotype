@@ -495,6 +495,8 @@ fn lang_title(lang: &str, name: &str) -> String {
         "text" => t!("lang-text"),
         "mermaid" => t!("lang-mermaid"),
         "dot" => t!("lang-dot"),
+        "console" => t!("lang-console"),
+        "log" => t!("lang-log"),
         _ => name.to_owned(),
     }
 }
@@ -526,6 +528,8 @@ const LANGS: &[(&str, &str)] = &[
     ("sql", "SQL"),
     ("bash", "Bash"),
     ("powershell", "PowerShell"),
+    ("console", "Console"),
+    ("log", "Log"),
     ("lua", "Lua"),
     ("markdown", "Markdown"),
     ("text", "text"),
@@ -620,6 +624,21 @@ mod tests {
         assert_eq!(at_end("`код`{badge gr").unwrap().query, "gr");
         assert_eq!(at_end("текст #ru").unwrap().kind, Kind::Tag);
         assert_eq!(at_end("---\ntags: [rust, вул").unwrap().query, "вул");
+    }
+
+    #[test]
+    fn console_and_log_fence_languages() {
+        crate::i18n::init();
+        let dir = std::env::temp_dir().join(format!("holotype-complete-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let vault = Vault::open(&dir).unwrap();
+        for (src, lang, title) in [("```cons", "console", "Консоль"), ("```lo", "log", "Лог")] {
+            let ctx = at_end(src).unwrap();
+            let found = items(&ctx, src, &vault, Path::new("a.md"));
+            let item = found.iter().find(|i| i.label == lang).unwrap_or_else(|| panic!("нет {lang} в {found:?}"));
+            assert_eq!(item.detail, title);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

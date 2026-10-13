@@ -21,6 +21,7 @@ use crate::diagram;
 use crate::fonts;
 use crate::highlight;
 use crate::math::{self, MathBox};
+use crate::term::{self, Kind, LineKind};
 use crate::theme::{self, Palette};
 use crate::vault::Vault;
 use forma_i18n::t;
@@ -608,8 +609,11 @@ impl<'a> Renderer<'a> {
             LinkKind::Tag => self.actions.push(Action::SearchTag(link.target.clone())),
             LinkKind::Footnote => self.request_scroll(ui, format!("^{}", link.target)),
             LinkKind::Wiki => {
-                if let Some(h) = link.target.strip_prefix('#') {
-                    self.request_scroll(ui, h.to_lowercase());
+                if link.target.starts_with('#') {
+                    // Раздел разбираем так же, как при переходе в другую заметку: без `|текста` и пробелов.
+                    if let Some(h) = crate::markdown::link_heading_part(&link.target) {
+                        self.request_scroll(ui, h.to_lowercase());
+                    }
                 } else {
                     self.actions.push(Action::OpenNote { target: link.target.clone(), new_tab });
                 }
@@ -716,6 +720,7 @@ impl<'a> Renderer<'a> {
     }
 
     /// Блок кода (или группа с вкладками) в стиле современных сайтов документации.
+    /// Сеансы консоли и логи — тоже блоки кода, со своей шапкой и раскраской.
     fn code_blocks(&mut self, ui: &mut Ui, group: &[CodeBlock]) {
         if group.is_empty() {
             return;
@@ -727,7 +732,6 @@ impl<'a> Renderer<'a> {
         let mut sel: usize = ui.data(|d| d.get_temp(sel_id)).unwrap_or(0);
         sel = sel.min(group.len() - 1);
         let code_size = s * 0.84;
-        let line_h = code_size * 1.7;
         let radius = 12u8;
         let view_id = id.with(("view", sel));
         let mut show_code: bool = ui.data(|d| d.get_temp(view_id)).unwrap_or(false);
@@ -742,49 +746,85 @@ impl<'a> Renderer<'a> {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
 
-                // Шапка: вкладки, имя файла и кнопка копирования.
+                // Шапка: вкладки, имя файла и кнопка копирования — одной невысокой строкой.
                 Frame::new()
                     .fill(pal.code_header)
                     .corner_radius(CornerRadius { nw: radius - 1, ne: radius - 1, sw: 0, se: 0 })
-                    .inner_margin(Margin { left: 12, right: 14, top: 9, bottom: 9 })
+                    .inner_margin(Margin { left: 12, right: 8, top: 4, bottom: 4 })
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.allocate_ui_with_layout(vec2(ui.available_width(), s * 1.9), Layout::left_to_right(Align::Center), |ui| {
+                        ui.allocate_ui_with_layout(vec2(ui.available_width(), s * 1.5), Layout::left_to_right(Align::Center), |ui| {
                             ui.spacing_mut().item_spacing.x = s * 0.35;
                             let tabs = group.len() > 1 || group[0].tab.is_some();
                             if tabs {
                                 for (i, cb) in group.iter().enumerate() {
                                     let label = cb.tab.clone().unwrap_or_else(|| highlight::display_name(&cb.lang));
-                                    if code_tab(ui, pal, &label, i == sel, s * 0.82).clicked() && i != sel {
+                                    if code_tab(ui, pal, &label, i == sel, s * 0.78).clicked() && i != sel {
                                         sel = i;
                                         ui.data_mut(|d| d.insert_temp(sel_id, sel));
                                         theme::restart_fade(ui.ctx(), id.with(("fade", sel)));
                                     }
                                 }
-                                ui.add_space(s * 0.5);
+                                ui.add_space(s * 0.4);
                             }
                             let cb = &group[sel];
-                            let kind_title = diagram_kind.map(|k| k.title().to_owned());
-                            let title = cb
-                                .title
-                                .clone()
-                                .or(kind_title)
-                                .unwrap_or_else(|| if tabs { String::new() } else { highlight::display_name(&cb.lang) });
-                            if !title.is_empty() {
-                                ui.label(RichText::new(title).font(FontId::monospace(s * 0.8)).color(pal.text_muted));
+                            let kind = term::kind(&cb.lang);
+                            let title_font = FontId::monospace(s * 0.8);
+                            match kind {
+                                Kind::Code => {
+                                    let kind_title = diagram_kind.map(|k| k.title().to_owned());
+                                    let title = cb
+                                        .title
+                                        .clone()
+                                        .or(kind_title)
+                                        .unwrap_or_else(|| if tabs { String::new() } else { highlight::display_name(&cb.lang) });
+                                    if !title.is_empty() {
+                                        ui.label(RichText::new(title).font(title_font).color(pal.text_muted));
+                                    }
+                                }
+                                Kind::Console | Kind::Log => {
+                                    let (icon_rect, _) = ui.allocate_exact_size(Vec2::splat(s * 0.95), Sense::hover());
+                                    let icon = if kind == Kind::Console { "console" } else { "log" };
+                                    forma_ui::icons::paint(ui.painter(), icon_rect, icon, pal.text_muted);
+                                    let title = match (&cb.title, kind) {
+                                        (Some(t), _) => t.clone(),
+                                        (None, Kind::Log) => "log".to_owned(),
+                                        _ => String::new(),
+                                    };
+                                    if !title.is_empty() {
+                                        ui.label(RichText::new(title).font(title_font).color(pal.text_muted));
+                                    }
+                                    let badge = if kind == Kind::Console {
+                                        "bash".to_owned()
+                                    } else {
+                                        t!("code-lines", count = term::line_count(&cb.code))
+                                    };
+                                    header_badge(ui, pal, &badge, s * 0.72);
+                                }
                             }
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.spacing_mut().button_padding = vec2(s * 0.5, s * 0.15);
                                 let copied_id = id.with("copied");
                                 let copied_at: Option<f64> = ui.data(|d| d.get_temp(copied_id));
                                 let now = ui.input(|i| i.time);
                                 let recently = copied_at.is_some_and(|t| now - t < 1.6);
-                                let text = if recently { format!("✔ {}", t!("code-copied")) } else { format!("⧉ {}", t!("code-copy")) };
+                                let label = match kind {
+                                    Kind::Code => t!("code-copy"),
+                                    Kind::Console => t!("code-copy-commands"),
+                                    Kind::Log => t!("code-copy-log"),
+                                };
+                                let text = if recently { format!("✔ {}", t!("code-copied")) } else { format!("⧉ {label}") };
                                 let color = if recently { pal.success } else { pal.text_muted };
                                 let btn = egui::Button::new(RichText::new(text).size(s * 0.8).family(fonts::semibold()).color(color))
                                     .frame_when_inactive(false)
                                     .corner_radius(6);
                                 if ui.add(btn).on_hover_cursor(CursorIcon::PointingHand).clicked() {
-                                    ui.ctx().copy_text(group[sel].code.clone());
+                                    // Копируем всегда весь текст, даже у свёрнутого блока.
+                                    let text = match kind {
+                                        Kind::Console => term::commands_text(&cb.code),
+                                        _ => cb.code.clone(),
+                                    };
+                                    ui.ctx().copy_text(text);
                                     ui.data_mut(|d| d.insert_temp(copied_id, now));
                                 }
                                 if recently {
@@ -794,7 +834,7 @@ impl<'a> Renderer<'a> {
                                 if diagram_kind.is_some() {
                                     ui.add_space(s * 0.3);
                                     for (label, code_view) in [(t!("code-view-code"), true), (t!("code-view-diagram"), false)] {
-                                        if code_tab(ui, pal, &label, show_code == code_view, s * 0.78).clicked() && show_code != code_view {
+                                        if code_tab(ui, pal, &label, show_code == code_view, s * 0.74).clicked() && show_code != code_view {
                                             show_code = code_view;
                                             ui.data_mut(|d| d.insert_temp(view_id, show_code));
                                             theme::restart_fade(ui.ctx(), id.with(("fade", sel)));
@@ -807,52 +847,204 @@ impl<'a> Renderer<'a> {
                 let r = ui.available_rect_before_wrap();
                 ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, pal.code_border));
 
-                // Тело: номера строк и подсвеченный код.
+                // Тело: номера строк и подсвеченный код, сеанс консоли или лог.
                 let cb = &group[sel];
+                let kind = term::kind(&cb.lang);
+                let line_h = code_size
+                    * match kind {
+                        Kind::Code => 1.7,
+                        Kind::Console => 1.6,
+                        Kind::Log => 1.5,
+                    };
+                let text_shown = diagram_kind.is_none() || show_code;
+                let limit = term::collapse_at(cb).filter(|_| text_shown);
+                let expanded_id = id.with(("expanded", sel));
+                let expanded: bool = ui.data(|d| d.get_temp(expanded_id)).unwrap_or(false);
+                let shown = limit.filter(|_| !expanded);
+                // egui ставит текст в верх строки высотой `line_h`, а весь межстрочный зазор
+                // оставляет под ним: под последней строкой он лишний, его вычитаем из поля.
+                let row_h = ui.fonts_mut(|f| f.row_height(&FontId::monospace(code_size)));
+                let leading = if text_shown { (line_h - row_h).max(0.0) } else { 0.0 };
+                let pad = 12.0;
                 let fade = theme::fade(ui.ctx(), id.with(("fade", sel)), 0.2);
-                Frame::new().inner_margin(Margin { left: 14, right: 16, top: 14, bottom: 14 }).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.multiply_opacity(fade);
-                    if let Some(result) = rendered.as_deref() {
-                        match result {
-                            Ok((_, scene)) if !show_code => {
-                                self.paint_diagram(ui, scene, id.with(("dscroll", sel)));
-                                return;
+                let body = Frame::new()
+                    .inner_margin(Margin { left: 14, right: 16, top: pad as i8, bottom: (pad - leading).round().max(2.0) as i8 })
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.multiply_opacity(fade);
+                        if let Some(result) = rendered.as_deref() {
+                            match result {
+                                Ok((_, scene)) if !show_code => {
+                                    self.paint_diagram(ui, scene, id.with(("dscroll", sel)));
+                                    return;
+                                }
+                                Err(err) => {
+                                    let color = if matches!(err, diagram::Error::Unsupported(_)) { pal.text_faint } else { pal.warning };
+                                    ui.label(RichText::new(err.to_string()).size(s * 0.8).color(color));
+                                    ui.add_space(s * 0.6);
+                                }
+                                _ => {}
                             }
-                            Err(err) => {
-                                let color = if matches!(err, diagram::Error::Unsupported(_)) { pal.text_faint } else { pal.warning };
-                                ui.label(RichText::new(err.to_string()).size(s * 0.8).color(color));
-                                ui.add_space(s * 0.6);
-                            }
-                            _ => {}
                         }
-                    }
-                    ui.with_layout(Layout::left_to_right(Align::TOP), |ui| {
-                        let lines = cb.code.lines().count().max(1);
-                        if lines >= 2 {
-                            let digits = lines.to_string().len();
-                            let numbers: String = (1..=lines).map(|n| format!("{n:>digits$}\n")).collect();
-                            let mut job = LayoutJob::default();
-                            job.append(
-                                numbers.trim_end(),
-                                0.0,
-                                TextFormat {
-                                    font_id: FontId::monospace(code_size),
-                                    color: pal.code_gutter,
-                                    line_height: Some(line_h),
-                                    ..Default::default()
-                                },
-                            );
-                            ui.add(Label::new(job).extend().selectable(false));
-                            ui.add_space(s * 1.1);
+                        let code = shown.map_or(cb.code.as_str(), |n| term::head(&cb.code, n));
+                        match kind {
+                            Kind::Code => self.code_body(ui, cb, code, id.with(("scroll", sel)), code_size, line_h),
+                            Kind::Console => self.console_body(ui, cb, code, id.with(("console", sel)), code_size, line_h),
+                            Kind::Log => self.log_body(ui, cb, code, code_size, line_h),
                         }
-                        let job = highlight::job(ui.ctx(), &cb.code, &cb.lang, pal.dark, code_size, line_h);
-                        ScrollArea::horizontal().id_salt(id.with(("scroll", sel))).show(ui, |ui| {
-                            ui.add(Label::new(job).extend().selectable(true));
-                        });
                     });
-                });
+
+                // Свёрнутый блок: последние строки растворяются в фоне, ниже — «Показать ещё».
+                let Some(limit) = limit else { return };
+                if shown.is_some() {
+                    let r = body.response.rect;
+                    let top = (r.bottom() - line_h * 2.0 - pad).max(r.top());
+                    fade_down(ui.painter(), Rect::from_min_max(pos2(r.left(), top), r.max), pal.code_bg);
+                }
+                let r = ui.available_rect_before_wrap();
+                ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, pal.code_border));
+                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), s * 1.9), Sense::click());
+                let hover = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.12);
+                let corner = CornerRadius { nw: 0, ne: 0, sw: radius - 1, se: radius - 1 };
+                ui.painter().rect_filled(rect.shrink(0.5), corner, pal.bg_hover.gamma_multiply(hover * 0.6));
+                let (icon, label) = if expanded {
+                    ("chevron-up", t!("code-collapse"))
+                } else {
+                    ("chevron-down", t!("code-show-more", count = term::line_count(&cb.code) - limit))
+                };
+                let color = mix(pal.text_muted, pal.heading, hover * 0.6);
+                let galley = ui.painter().layout_no_wrap(label, FontId::new(s * 0.8, fonts::semibold()), color);
+                let icon_side = s * 0.9;
+                let gap = s * 0.35;
+                let x0 = rect.center().x - (icon_side + gap + galley.size().x) / 2.0;
+                let icon_rect = Rect::from_min_size(pos2(x0, rect.center().y - icon_side / 2.0), Vec2::splat(icon_side));
+                forma_ui::icons::paint(ui.painter(), icon_rect, icon, color);
+                ui.painter().galley(pos2(icon_rect.right() + gap, rect.center().y - galley.size().y / 2.0), galley, color);
+                if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                    ui.data_mut(|d| d.insert_temp(expanded_id, !expanded));
+                    theme::restart_fade(ui.ctx(), id.with(("fade", sel)));
+                }
             });
+    }
+
+    /// Обычный код: номера строк (если строк больше одной) и подсветка с прокруткой вбок.
+    fn code_body(&mut self, ui: &mut Ui, cb: &CodeBlock, code: &str, scroll: egui::Id, code_size: f32, line_h: f32) {
+        let pal = self.pal;
+        ui.with_layout(Layout::left_to_right(Align::TOP), |ui| {
+            let total = term::line_count(&cb.code);
+            if total >= 2 {
+                let digits = total.to_string().len();
+                let numbers: String = (1..=term::line_count(code)).map(|n| format!("{n:>digits$}\n")).collect();
+                let mut job = LayoutJob::default();
+                job.append(
+                    numbers.trim_end_matches('\n'),
+                    0.0,
+                    TextFormat { font_id: FontId::monospace(code_size), color: pal.code_gutter, line_height: Some(line_h), ..Default::default() },
+                );
+                ui.add(Label::new(job).extend().selectable(false));
+                ui.add_space(self.size * 1.1);
+            }
+            let job = highlight::job(ui.ctx(), code, &cb.lang, pal.dark, code_size, line_h);
+            ScrollArea::horizontal().id_salt(scroll).show(ui, |ui| {
+                ui.add(Label::new(job).extend().selectable(true));
+            });
+        });
+    }
+
+    /// Сеанс консоли: приглашение рисуется отдельно (его не выделить и не скопировать),
+    /// у команды под указателем — кнопка копирования.
+    fn console_body(&mut self, ui: &mut Ui, cb: &CodeBlock, code: &str, id: egui::Id, code_size: f32, line_h: f32) {
+        let pal = self.pal;
+        let font = FontId::monospace(code_size);
+        let row_h = ui.fonts_mut(|f| f.row_height(&font));
+        let fmt = |color: Color32| TextFormat { font_id: font.clone(), color, line_height: Some(line_h), ..Default::default() };
+        // Приглашение: папка (если есть) и зелёный `$`.
+        let mut prompt = LayoutJob::default();
+        if let Some(cwd) = &cb.cwd {
+            prompt.append(cwd, 0.0, fmt(mix(pal.term_info, pal.text_muted, 0.35)));
+            prompt.append(" ", 0.0, fmt(pal.text_muted));
+        }
+        prompt.append("$ ", 0.0, TextFormat { font_id: FontId::new(code_size, fonts::mono_bold()), ..fmt(pal.success) });
+        let prompt = ui.fonts_mut(|f| f.layout_job(prompt));
+        let view = console_view(ui.ctx(), pal, code, code_size, line_h, prompt.size().x);
+        let galley = ui.fonts_mut(|f| f.layout_job(view.job.clone()));
+
+        let out = ScrollArea::horizontal().id_salt(id.with("scroll")).show(ui, |ui| {
+            let resp = ui.add(Label::new(galley.clone()).selectable(true));
+            let origin = resp.rect.min;
+            for c in &view.commands {
+                if let Some(row) = galley.rows.get(c.lines.start) {
+                    ui.painter().galley(origin + row.pos.to_vec2(), prompt.clone(), pal.text);
+                }
+            }
+            resp.rect
+        });
+
+        // Кнопка «копировать команду» справа у строки под указателем.
+        let label = out.inner;
+        let view_rect = out.inner_rect;
+        let side = row_h.max(code_size * 1.4);
+        for (i, c) in view.commands.iter().enumerate() {
+            if c.text.trim().is_empty() {
+                continue;
+            }
+            let (Some(first), Some(last)) = (galley.rows.get(c.lines.start), galley.rows.get(c.lines.end - 1)) else { continue };
+            let rows = Rect::from_x_y_ranges(view_rect.x_range(), label.top() + first.pos.y..=label.top() + last.pos.y + line_h);
+            let icon_rect = Rect::from_center_size(pos2(view_rect.right() - side / 2.0, rows.top() + row_h / 2.0), Vec2::splat(side));
+            let btn_id = id.with(("copy", i));
+            let hovered = ui.rect_contains_pointer(rows);
+            let copied_id = id.with(("copied", i));
+            let now = ui.input(|inp| inp.time);
+            let recently = ui.data(|d| d.get_temp::<f64>(copied_id)).is_some_and(|t| now - t < 1.4);
+            if !hovered && !recently {
+                continue;
+            }
+            let resp = ui.interact(icon_rect, btn_id, Sense::click());
+            let painter = ui.painter();
+            let fill = if resp.hovered() { mix(pal.code_bg, pal.bg_hover, 0.9) } else { pal.code_bg };
+            painter.rect(icon_rect, CornerRadius::same(5), fill, Stroke::new(1.0, pal.code_border), egui::StrokeKind::Inside);
+            let (icon, color) = if recently { ("check", pal.success) } else { ("copy", if resp.hovered() { pal.heading } else { pal.text_muted }) };
+            forma_ui::icons::paint(painter, icon_rect.shrink(side * 0.22), icon, color);
+            if resp.on_hover_text(t!("code-copy-command")).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                ui.ctx().copy_text(c.text.clone());
+                ui.data_mut(|d| d.insert_temp(copied_id, now));
+            }
+            if recently {
+                ui.ctx().request_repaint_after_secs(0.4);
+            }
+        }
+    }
+
+    /// Лог: номера строк, длинные строки переносятся (продолжение — под началом текста).
+    fn log_body(&mut self, ui: &mut Ui, cb: &CodeBlock, code: &str, code_size: f32, line_h: f32) {
+        let pal = self.pal;
+        let font = FontId::monospace(code_size);
+        let digits = term::line_count(&cb.code).to_string().len();
+        let gutter_w = ui.fonts_mut(|f| f.layout_no_wrap("0".repeat(digits), font.clone(), pal.code_gutter)).size().x;
+        let gap = self.size * 1.1;
+        let mut job = log_job(ui.ctx(), pal, code, code_size, line_h);
+        job.wrap.max_width = (ui.available_width() - gutter_w - gap).max(self.size * 8.0);
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        ui.horizontal_top(|ui| {
+            let (gutter, _) = ui.allocate_exact_size(vec2(gutter_w + gap, galley.size().y), Sense::hover());
+            let resp = ui.add(Label::new(galley.clone()).selectable(true));
+            let mut number = 0;
+            for (i, row) in galley.rows.iter().enumerate() {
+                if i > 0 && !galley.rows[i - 1].ends_with_newline {
+                    continue;
+                }
+                number += 1;
+                let pos = pos2(gutter.left() + gutter_w, resp.rect.top() + row.pos.y);
+                if !ui.is_rect_visible(Rect::from_min_size(pos2(gutter.left(), pos.y), vec2(gutter_w, line_h))) {
+                    continue;
+                }
+                let num = ui.painter().layout_job(LayoutJob::single_section(
+                    number.to_string(),
+                    TextFormat { font_id: font.clone(), color: pal.code_gutter, line_height: Some(line_h), ..Default::default() },
+                ));
+                ui.painter().galley(pos2(pos.x - num.size().x, pos.y), num, pal.code_gutter);
+            }
+        });
     }
 
     /// Диаграмма по центру блока; широкая — уменьшается до ширины, а если совсем широкая — прокручивается.
@@ -1307,7 +1499,8 @@ impl<'a> Renderer<'a> {
             return;
         }
         // <img src="…"> показываем картинкой.
-        if let Some(pos) = trimmed.to_lowercase().find("<img") {
+        // ASCII-регистр не меняет длину в байтах: позиция годится для среза исходной строки.
+        if let Some(pos) = trimmed.to_ascii_lowercase().find("<img") {
             if let Some(src) = attr_value(&trimmed[pos..], "src") {
                 self.image(ui, &src, "", attr_value(&trimmed[pos..], "width").and_then(|w| w.parse().ok()), false);
                 return;
@@ -1379,11 +1572,195 @@ fn diagram_scene(ctx: &egui::Context, slot: egui::Id, cb: &CodeBlock) -> Diagram
     r
 }
 
+/// Маленькая серая плашка в шапке блока: `bash`, «19 строк».
+fn header_badge(ui: &mut Ui, pal: &Palette, text: &str, size: f32) {
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), FontId::new(size, fonts::semibold()), pal.text_muted);
+    let pad = vec2(size * 0.55, size * 0.16);
+    let (rect, _) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::hover());
+    ui.painter().rect_filled(rect, CornerRadius::same(5), mix(pal.code_header, pal.code_border, 0.8));
+    ui.painter().galley(rect.min + pad, galley, pal.text_muted);
+}
+
+/// Вертикальный градиент: сверху прозрачно, внизу — цвет `color`.
+fn fade_down(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.left_top(), Color32::TRANSPARENT);
+    mesh.colored_vertex(rect.right_top(), Color32::TRANSPARENT);
+    mesh.colored_vertex(rect.left_bottom(), color);
+    mesh.colored_vertex(rect.right_bottom(), color);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 2, 3);
+    painter.add(Shape::mesh(mesh));
+}
+
+/// Раскладка сеанса консоли: текст без приглашений (на их месте отступ) и команды.
+struct ConsoleView {
+    job: LayoutJob,
+    commands: Vec<term::Command>,
+}
+
+#[derive(Clone, Copy, Hash)]
+struct TermKey<'a> {
+    code: &'a str,
+    pal: &'a Palette,
+    size_bits: u32,
+    line_height_bits: u32,
+    indent_bits: u32,
+}
+
+impl TermKey<'_> {
+    fn sizes(&self) -> (f32, f32, f32) {
+        (f32::from_bits(self.size_bits), f32::from_bits(self.line_height_bits), f32::from_bits(self.indent_bits))
+    }
+}
+
+#[derive(Default)]
+struct ConsoleBuilder;
+
+impl egui::cache::ComputerMut<TermKey<'_>, Arc<ConsoleView>> for ConsoleBuilder {
+    fn compute(&mut self, key: TermKey<'_>) -> Arc<ConsoleView> {
+        let (size, line_h, indent) = key.sizes();
+        Arc::new(build_console(key.pal, key.code, size, line_h, indent))
+    }
+}
+
+#[derive(Default)]
+struct LogBuilder;
+
+impl egui::cache::ComputerMut<TermKey<'_>, LayoutJob> for LogBuilder {
+    fn compute(&mut self, key: TermKey<'_>) -> LayoutJob {
+        let (size, line_h, _) = key.sizes();
+        build_log(key.pal, key.code, size, line_h)
+    }
+}
+
+/// Сеанс консоли с кэшем между кадрами (подсветка команд не бесплатна).
+fn console_view(ctx: &egui::Context, pal: &Palette, code: &str, size: f32, line_h: f32, indent: f32) -> Arc<ConsoleView> {
+    let key = TermKey { code, pal, size_bits: size.to_bits(), line_height_bits: line_h.to_bits(), indent_bits: indent.to_bits() };
+    ctx.memory_mut(|m| m.caches.cache::<egui::cache::FrameCache<Arc<ConsoleView>, ConsoleBuilder>>().get(key).clone())
+}
+
+fn log_job(ctx: &egui::Context, pal: &Palette, code: &str, size: f32, line_h: f32) -> LayoutJob {
+    let key = TermKey { code, pal, size_bits: size.to_bits(), line_height_bits: line_h.to_bits(), indent_bits: 0 };
+    ctx.memory_mut(|m| m.caches.cache::<egui::cache::FrameCache<LayoutJob, LogBuilder>>().get(key).clone())
+}
+
+fn term_format(size: f32, line_h: f32, color: Color32, bold: bool) -> TextFormat {
+    let family = if bold { fonts::mono_bold() } else { FontFamily::Monospace };
+    TextFormat { font_id: FontId::new(size, family), color, line_height: Some(line_h), ..Default::default() }
+}
+
+/// Команды подсвечены как Bash, вывод чуть тусклее команд и раскрашен по-cargo-вски,
+/// комментарии — бледные. Перед командой — отступ `indent` под приглашение.
+fn build_console(pal: &Palette, code: &str, size: f32, line_h: f32, indent: f32) -> ConsoleView {
+    let lines = term::console_lines(code);
+    let commands = term::commands(&lines);
+    let output = mix(pal.code_text, pal.code_bg, 0.18);
+    let fmt = |color: Color32, bold: bool| term_format(size, line_h, color, bold);
+    let mut job = LayoutJob::default();
+    let mut level = None;
+    let mut next_cmd = commands.iter().peekable();
+    let mut i = 0;
+    while i < lines.len() {
+        if i > 0 {
+            job.append("\n", 0.0, fmt(output, false));
+        }
+        let line = lines[i];
+        match line.kind {
+            LineKind::Command => {
+                let Some(c) = next_cmd.next() else { break };
+                level = None;
+                let mut lead = indent;
+                for (r, color, italics) in highlight::ranges(&c.text, "bash", pal.dark) {
+                    job.append(&c.text[r], lead, TextFormat { italics, ..fmt(color, false) });
+                    lead = 0.0;
+                }
+                if lead > 0.0 {
+                    job.append("", lead, fmt(output, false));
+                }
+                i = c.lines.end;
+                continue;
+            }
+            LineKind::Comment => job.append(line.text, 0.0, fmt(pal.text_faint, false)),
+            LineKind::Continuation | LineKind::Output => {
+                let mut at = 0;
+                for (r, tone) in term::output_spans(line.text, &mut level) {
+                    if r.start > at {
+                        job.append(&line.text[at..r.start], 0.0, fmt(output, false));
+                    }
+                    let (color, bold) = tone_style(pal, tone);
+                    job.append(&line.text[r.clone()], 0.0, fmt(color, bold));
+                    at = r.end;
+                }
+                if at < line.text.len() {
+                    job.append(&line.text[at..], 0.0, fmt(output, false));
+                }
+            }
+        }
+        i += 1;
+    }
+    ConsoleView { job, commands }
+}
+
+/// Цвета вывода Cargo и rustc: как в настоящем терминале, но из палитры темы.
+fn tone_style(pal: &Palette, tone: term::Tone) -> (Color32, bool) {
+    use term::Tone as T;
+    match tone {
+        T::Status => (pal.success, true),
+        T::Error => (pal.danger, true),
+        T::Warning => (pal.warning, true),
+        T::Hint => (pal.term_hint, true),
+        T::Message => (pal.heading, true),
+        T::Gutter => (pal.term_info, true),
+        T::Added => (pal.success, false),
+    }
+}
+
+fn build_log(pal: &Palette, code: &str, size: f32, line_h: f32) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    let mut prev = None;
+    for (i, line) in term::lines(code).enumerate() {
+        if i > 0 {
+            job.append("\n", 0.0, term_format(size, line_h, pal.code_text, false));
+        }
+        let parsed = term::log_line(line, prev);
+        prev = parsed.level;
+        for (r, tone) in parsed.spans {
+            let (color, bold) = log_style(pal, tone);
+            job.append(&line[r], 0.0, term_format(size, line_h, color, bold));
+        }
+    }
+    job
+}
+
+/// Цвета лога: время и источник приглушены, уровень — своим цветом, а сообщения
+/// предупреждений и ошибок подкрашены целиком.
+fn log_style(pal: &Palette, tone: term::LogTone) -> (Color32, bool) {
+    use term::{Level, LogTone as T};
+    match tone {
+        T::Plain => (pal.code_text, false),
+        T::Time => (pal.text_faint, false),
+        T::Group => (mix(pal.accent, pal.text_muted, 0.45), false),
+        T::Level(level) => {
+            let color = match level {
+                Level::Trace => pal.text_faint,
+                Level::Debug => mix(pal.accent, pal.text_faint, 0.35),
+                Level::Info => pal.term_info,
+                Level::Warn => pal.warning,
+                Level::Error => pal.danger,
+            };
+            (color, true)
+        }
+        T::Tinted(Level::Error) => (mix(pal.danger, pal.code_text, 0.15), false),
+        T::Tinted(_) => (mix(pal.warning, pal.code_text, 0.2), false),
+    }
+}
+
 /// Кнопка-вкладка в шапке блока кода.
 fn code_tab(ui: &mut Ui, pal: &Palette, label: &str, selected: bool, size: f32) -> egui::Response {
     let font = FontId::new(size, fonts::semibold());
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, pal.text);
-    let pad = vec2(size * 0.9, size * 0.45);
+    let pad = vec2(size * 0.85, size * 0.26);
     let (rect, resp) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
     let t = ui.ctx().animate_bool_with_time(resp.id, selected, 0.15);
     let hover = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered(), 0.12);
@@ -1621,7 +1998,8 @@ fn math_origin(galley: &Galley, char_index: usize) -> Option<Vec2> {
 }
 
 fn attr_value(tag: &str, name: &str) -> Option<String> {
-    let lower = tag.to_lowercase();
+    // Только ASCII: `to_lowercase` меняет длину ('İ' → 'i̇'), и срез `tag` попал бы внутрь символа.
+    let lower = tag.to_ascii_lowercase();
     let pos = lower.find(&format!("{name}="))?;
     let rest = &tag[pos + name.len() + 1..];
     let quote = rest.chars().next()?;
@@ -1645,4 +2023,17 @@ fn strip_tags(html: &str) -> String {
         }
     }
     out.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attr_value_after_non_ascii() {
+        // 'İ' в нижнем регистре длиннее на байт: раньше срез попадал внутрь «к» и падал.
+        assert_eq!(attr_value("<img alt=\"İİ\" src=\"кот.png\" width=200>", "src").as_deref(), Some("кот.png"));
+        assert_eq!(attr_value("<img İ WIDTH=120>", "width").as_deref(), Some("120"));
+        assert_eq!(attr_value("<IMG alt='İ' SRC='a.png'>", "src").as_deref(), Some("a.png"));
+    }
 }
