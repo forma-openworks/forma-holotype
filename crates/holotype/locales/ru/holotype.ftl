@@ -50,7 +50,7 @@ action-open-new-tab = Открыть в новой вкладке
 action-create = Создать
 action-delete = Удалить
 
-## Вкладки и рабочие пространства
+## Редакторы областей и рабочие пространства
 
 mode-edit = Правка
 mode-split = Сплит
@@ -64,6 +64,11 @@ pane-graph = Граф
 pane-outline = Оглавление
 pane-backlinks = Обратные ссылки
 pane-info = Сведения
+kind-group-notes = Заметки
+kind-group-navigation = Навигация
+kind-group-about = О заметке
+tab-close-others = Закрыть другие вкладки
+tab-close-all = Закрыть все вкладки
 
 workspace-notes = Заметки
 workspace-graph = Граф

@@ -19,7 +19,7 @@ use crate::autoscroll;
 use crate::editor::{self, EditorStyle};
 use crate::markdown;
 use crate::render::{Action, Renderer};
-use crate::tabs::{Tab, ViewMode};
+use crate::panes::{NoteTab, ViewMode};
 use crate::theme::{self, Palette};
 use crate::vault::Vault;
 
@@ -44,7 +44,7 @@ pub struct NoteCx<'a> {
 }
 
 /// Вкладка заметки `tab`: заметка `doc` и состояние вкладки `view`.
-pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut Tab, rel: &Path, doc: &mut NoteDoc, view: &mut NoteView, cmds: &mut Vec<Cmd>) {
+pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, doc: &mut NoteDoc, view: &mut NoteView, cmds: &mut Vec<Cmd>) {
     let pal = cx.pal;
     let mode = tab.mode.unwrap_or(cx.default_mode);
     header(ui, cx, tab, rel, doc.dirty, view, mode, cmds);
@@ -134,7 +134,7 @@ fn preview(ui: &mut Ui, cx: &NoteCx, rel: &Path, doc: &mut NoteDoc, view: &mut N
 
 /// Шапка вкладки: назад и вперёд, название с папкой, переключатель вида.
 #[allow(clippy::too_many_arguments)]
-fn header(ui: &mut Ui, cx: &NoteCx, tab: &mut Tab, rel: &Path, dirty: bool, view: &NoteView, mode: ViewMode, cmds: &mut Vec<Cmd>) {
+fn header(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, dirty: bool, view: &NoteView, mode: ViewMode, cmds: &mut Vec<Cmd>) {
     let pal = cx.pal;
     let fpal = cx.fpal;
     let mut left = Vec::new();

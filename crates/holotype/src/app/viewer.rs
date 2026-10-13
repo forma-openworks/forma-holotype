@@ -1,4 +1,4 @@
-//! Вкладки областей: как каждая панель рисуется внутри составного интерфейса Forma.
+//! Содержимое областей: как каждый редактор рисуется внутри составного интерфейса Forma.
 //! [`Viewer`] собирается заново на каждом кадре из частей состояния программы.
 
 use std::collections::HashMap;
@@ -12,7 +12,8 @@ use eframe::egui::{
 };
 use forma_actions::{Keymap, Registry};
 use forma_i18n::t;
-use forma_layout::TabViewer;
+use forma_layout::{EditorKind, EditorViewer, KindGroup};
+use forma_ui::widgets::{doc_tab, header_button};
 
 use super::docs::{Docs, NoteView};
 use super::note::{Keys, NoteCx, note_ui};
@@ -20,19 +21,19 @@ use super::{Cmd, FilesState, NodeKind, SearchState, TreeNode};
 use crate::fonts;
 use crate::graph::{Graph, GraphAction};
 use crate::markdown;
+use crate::panes::{Kind, NoteTab, Pane};
 use crate::settings::Notes;
-use crate::tabs::{Pane, Tab};
 use crate::theme::{self, Palette};
 use crate::vault::Vault;
 
-/// Всё, что нужно вкладкам для отрисовки. Собирается заново на каждом кадре.
+/// Всё, что нужно редакторам для отрисовки. Собирается заново на каждом кадре.
 pub struct Viewer<'a> {
     pub pal: &'a Palette,
     pub fpal: &'a forma_ui::theme::Palette,
     pub vault: Option<&'a Vault>,
     pub docs: &'a mut Docs,
     pub views: &'a mut HashMap<u64, NoteView>,
-    /// Вкладка заметки, с которой работали последней (обновляется щелчком внутри вкладки).
+    /// Вкладка заметки, с которой работали последней (обновляется щелчком внутри заметки).
     pub current: &'a mut Option<u64>,
     /// Заметка текущей вкладки — для оглавления, обратных ссылок и сведений.
     pub current_rel: Option<PathBuf>,
@@ -47,52 +48,107 @@ pub struct Viewer<'a> {
     pub fired: &'a mut Vec<String>,
     /// Работают ли общие сочетания (пока открыт диалог — нет).
     pub shortcuts: bool,
-    pub next_tab: &'a mut u64,
+    pub next_id: &'a mut u64,
     pub cmds: &'a mut Vec<Cmd>,
     pub now: f64,
 }
 
 impl Viewer<'_> {
-    fn new_tab(&mut self, pane: Pane) -> Tab {
-        *self.next_tab += 1;
-        Tab::new(pane, *self.next_tab)
+    fn new_id(&mut self) -> u64 {
+        *self.next_id += 1;
+        *self.next_id
+    }
+
+    /// Подпись сочетания для вида редактора в меню выбора вида.
+    fn kind_keys(&self, kind: Kind) -> String {
+        let action = match kind {
+            Kind::Search => crate::actions::SEARCH,
+            Kind::Graph => crate::actions::GRAPH,
+            _ => return String::new(),
+        };
+        self.keymap.text(self.actions, action)
     }
 }
 
-impl TabViewer for Viewer<'_> {
-    type Tab = Tab;
+fn stem(rel: &Path) -> String {
+    rel.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+}
 
-    fn title(&mut self, tab: &Tab) -> String {
-        match (&tab.note, tab.pane) {
-            (Some(rel), Pane::Note) => {
-                let name = rel.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-                if self.docs.is_dirty(rel) { format!("{name} ●") } else { name }
+impl EditorViewer for Viewer<'_> {
+    type Editor = Pane;
+
+    fn kinds(&mut self) -> Vec<KindGroup> {
+        Kind::GROUPS
+            .iter()
+            .map(|(title, kinds)| KindGroup {
+                title: forma_i18n::tr(title),
+                kinds: kinds
+                    .iter()
+                    .map(|&k| EditorKind { id: k.id().to_owned(), title: k.title(), icon: k.icon().to_owned(), shortcut: self.kind_keys(k) })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    fn kind(&mut self, pane: &Pane) -> String {
+        pane.kind.id().to_owned()
+    }
+
+    fn create(&mut self, kind: &str) -> Option<Pane> {
+        let kind = Kind::from_id(kind)?;
+        Some(Pane::new(kind, self.new_id()))
+    }
+
+    /// Вид меняется, а вкладки заметок остаются — вернёшь заметки, вернутся и они.
+    fn switch(&mut self, pane: &mut Pane, kind: &str) {
+        if let Some(kind) = Kind::from_id(kind) {
+            pane.kind = kind;
+            if kind == Kind::Graph {
+                self.graph.reheat();
             }
-            _ => tab.pane.title(),
         }
     }
 
-    fn icon(&mut self, tab: &Tab) -> Option<(String, Color32)> {
-        let color = if tab.pane == Pane::Note { self.pal.text_muted } else { self.pal.accent };
-        Some((tab.pane.icon().to_owned(), color))
+    fn title(&mut self, pane: &Pane) -> String {
+        match pane.active_note() {
+            Some(n) => stem(&n.rel),
+            None => pane.kind.title(),
+        }
     }
 
-    fn id(&mut self, tab: &Tab) -> Id {
-        Id::new(("holotype-tab", tab.id))
+    fn icon(&mut self, pane: &Pane) -> Option<(String, Color32)> {
+        Some((pane.kind.icon().to_owned(), self.pal.accent))
     }
 
-    fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
-        // Щелчок внутри вкладки заметки делает её текущей.
-        if tab.pane == Pane::Note && ui.ui_contains_pointer() && ui.input(|i| i.pointer.any_pressed()) {
-            *self.current = Some(tab.id);
+    fn id(&mut self, pane: &Pane) -> Id {
+        Id::new(("holotype-pane", pane.id))
+    }
+
+    fn header(&mut self, ui: &mut Ui, pane: &mut Pane) {
+        match pane.kind {
+            Kind::Note => self.note_tabs(ui, pane),
+            Kind::Files => self.files_header(ui),
+            kind => {
+                ui.label(RichText::new(kind.title()).size(13.0).color(self.fpal.tab_active_text));
+            }
+        }
+    }
+
+    fn ui(&mut self, ui: &mut Ui, pane: &mut Pane) {
+        // Щелчок внутри заметки делает её вкладку текущей.
+        if let Some(n) = pane.active_note()
+            && ui.ui_contains_pointer()
+            && ui.input(|i| i.pointer.any_pressed())
+        {
+            *self.current = Some(n.id);
         }
         let Some(vault) = self.vault else { return };
-        match tab.pane {
-            Pane::Note => self.note(ui, vault, tab),
-            Pane::Files => self.files(ui, vault),
-            Pane::Search => self.search(ui, vault),
-            Pane::Tags => self.tags(ui, vault),
-            Pane::Graph => {
+        match pane.kind {
+            Kind::Note => self.note(ui, vault, pane),
+            Kind::Files => self.files(ui, vault),
+            Kind::Search => self.search(ui, vault),
+            Kind::Tags => self.tags(ui, vault),
+            Kind::Graph => {
                 self.graph.sync(vault);
                 if let Some(action) = self.graph.ui(ui, self.pal, self.current_rel.as_deref()) {
                     self.cmds.push(match action {
@@ -101,41 +157,140 @@ impl TabViewer for Viewer<'_> {
                     });
                 }
             }
-            Pane::Outline => self.outline(ui, vault),
-            Pane::Backlinks => self.backlinks(ui, vault),
-            Pane::Info => self.info(ui, vault),
+            Kind::Outline => self.outline(ui, vault),
+            Kind::Backlinks => self.backlinks(ui, vault),
+            Kind::Info => self.info(ui, vault),
         }
     }
 
-    fn add_menu(&mut self, ui: &mut Ui) -> Option<Tab> {
-        let mut picked = None;
-        for pane in Pane::ALL {
-            if forma_ui::icons::item(ui, pane.icon(), pane.title(), false).clicked() {
-                picked = Some(self.new_tab(pane));
-            }
+    fn duplicate(&mut self, pane: &Pane) -> Pane {
+        let mut copy = pane.clone();
+        copy.id = self.new_id();
+        for n in &mut copy.notes {
+            n.id = self.new_id();
         }
-        picked
-    }
-
-    fn duplicate(&mut self, tab: &Tab) -> Tab {
-        let mut copy = self.new_tab(tab.pane);
-        copy.note = tab.note.clone();
-        copy.mode = tab.mode;
         copy
     }
 
-    fn on_close(&mut self, tab: Tab) {
-        // Закрытая вкладка заметки сохраняет её сразу, не дожидаясь автосохранения.
-        if tab.note.is_some() {
+    fn on_close(&mut self, pane: Pane) {
+        // Закрытые заметки сохраняются сразу, не дожидаясь автосохранения.
+        if !pane.notes.is_empty() {
             self.cmds.push(Cmd::SaveAll);
         }
-        self.views.remove(&tab.id);
+        for n in &pane.notes {
+            self.views.remove(&n.id);
+        }
     }
 
     fn window_input(&mut self, ui: &mut Ui) {
         if self.shortcuts {
-            forma_shell::Shell::<crate::settings::HolotypeSettings, crate::tabs::Space>::fire_global(ui, self.actions, self.keymap, self.fired);
+            forma_shell::Shell::<crate::settings::HolotypeSettings, crate::panes::Space>::fire_global(ui, self.actions, self.keymap, self.fired);
         }
+    }
+}
+
+/// Что сделать с вкладкой заметки после отрисовки строки вкладок.
+enum TabAction {
+    Activate(usize),
+    Close(usize),
+    CloseOthers(usize),
+    CloseAll,
+}
+
+impl Viewer<'_> {
+    /// Вкладки заметок в заголовке области.
+    fn note_tabs(&mut self, ui: &mut Ui, pane: &mut Pane) {
+        let fpal = self.fpal;
+        if pane.notes.is_empty() {
+            ui.label(RichText::new(Kind::Note.title()).size(13.0).color(fpal.tab_text));
+            return;
+        }
+        let mut action = None;
+        let docs = &*self.docs;
+        let cmds = &mut *self.cmds;
+        ScrollArea::horizontal()
+            .id_salt(("holotype-note-tabs", pane.id))
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for (i, n) in pane.notes.iter().enumerate() {
+                        let (resp, on_close) = doc_tab(ui, fpal, "note", &stem(&n.rel), i == pane.active, docs.is_dirty(&n.rel));
+                        if resp.middle_clicked() || (resp.clicked() && on_close) {
+                            action = Some(TabAction::Close(i));
+                        } else if resp.clicked() {
+                            action = Some(TabAction::Activate(i));
+                        }
+                        egui::Popup::context_menu(&resp).show(|ui| {
+                            if ui.button(t!("action-close")).clicked() {
+                                action = Some(TabAction::Close(i));
+                            }
+                            if ui.add_enabled(pane.notes.len() > 1, egui::Button::new(t!("tab-close-others"))).clicked() {
+                                action = Some(TabAction::CloseOthers(i));
+                            }
+                            if ui.button(t!("tab-close-all")).clicked() {
+                                action = Some(TabAction::CloseAll);
+                            }
+                            ui.separator();
+                            if ui.button(t!("action-rename")).clicked() {
+                                cmds.push(Cmd::RenameDialog(n.rel.clone()));
+                            }
+                            if ui.button(t!("action-reveal")).clicked() {
+                                cmds.push(Cmd::Reveal(n.rel.clone()));
+                            }
+                        });
+                        resp.on_hover_text(n.rel.display().to_string());
+                    }
+                });
+            });
+        let closed: Vec<NoteTab> = match action {
+            Some(TabAction::Activate(i)) => {
+                pane.active = i;
+                *self.current = Some(pane.notes[i].id);
+                Vec::new()
+            }
+            Some(TabAction::Close(i)) => pane.close(i).into_iter().collect(),
+            Some(TabAction::CloseOthers(i)) => {
+                let keep = pane.notes.remove(i);
+                pane.active = 0;
+                std::mem::replace(&mut pane.notes, vec![keep])
+            }
+            Some(TabAction::CloseAll) => {
+                pane.active = 0;
+                std::mem::take(&mut pane.notes)
+            }
+            None => Vec::new(),
+        };
+        if !closed.is_empty() {
+            self.cmds.push(Cmd::SaveAll);
+            for n in closed {
+                self.views.remove(&n.id);
+            }
+        }
+    }
+
+    /// Заголовок файлов: имя хранилища и кнопки «обновить», «новая папка», «новая заметка».
+    fn files_header(&mut self, ui: &mut Ui) {
+        let fpal = self.fpal;
+        let Some(vault) = self.vault else {
+            ui.label(RichText::new(Kind::Files.title()).size(13.0).color(fpal.tab_active_text));
+            return;
+        };
+        ui.label(RichText::new(vault.name()).size(13.0).family(fonts::semibold()).color(fpal.tab_active_text)).on_hover_text(vault.root.display().to_string());
+        let folder = self.current_rel.as_ref().and_then(|r| r.parent().map(Path::to_path_buf)).unwrap_or_default();
+        let cmds = &mut *self.cmds;
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            if header_button(ui, fpal, "note-new").on_hover_text(t!("action-new-note")).clicked() {
+                cmds.push(Cmd::NewNoteDialog { folder: folder.clone() });
+            }
+            if header_button(ui, fpal, "folder-new").on_hover_text(t!("action-new-folder")).clicked() {
+                cmds.push(Cmd::NewFolderDialog { parent: folder.clone() });
+            }
+            if header_button(ui, fpal, "refresh").on_hover_text(t!("action-rescan")).clicked() {
+                cmds.push(Cmd::Rescan);
+            }
+        });
     }
 }
 
@@ -162,8 +317,9 @@ fn empty(ui: &mut Ui, fpal: &forma_ui::theme::Palette, icon: &str, title: &str, 
 }
 
 impl Viewer<'_> {
-    fn note(&mut self, ui: &mut Ui, vault: &Vault, tab: &mut Tab) {
-        let Some(rel) = tab.note.clone() else {
+    fn note(&mut self, ui: &mut Ui, vault: &Vault, pane: &mut Pane) {
+        let active = pane.active;
+        let Some(tab) = pane.notes.get_mut(active) else {
             empty(ui, self.fpal, "note", &t!("note-empty-title"), &t!("note-empty-hint", open = self.keymap.text(self.actions, crate::actions::QUICK_OPEN)));
             ui.vertical_centered(|ui| {
                 if ui.button(t!("action-new-note")).clicked() {
@@ -172,6 +328,7 @@ impl Viewer<'_> {
             });
             return;
         };
+        let rel = tab.rel.clone();
         let Some(doc) = self.docs.get_or_load(vault, &rel) else {
             empty(ui, self.fpal, "warning", &t!("note-missing-title"), &t!("note-missing-hint", path = rel.display().to_string()));
             return;
@@ -199,28 +356,6 @@ impl Viewer<'_> {
         let active = self.current_rel.clone();
         let cmds = &mut *self.cmds;
         panel(ui, |ui| {
-            forma_ui::widgets::bar(
-                ui,
-                Id::new("files-bar"),
-                4.0,
-                |ui| {
-                    ui.label(RichText::new(vault.name()).size(14.0).family(fonts::semibold()).color(pal.heading)).on_hover_text(vault.root.display().to_string());
-                },
-                |ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    if forma_ui::icons::flat_button(ui, "refresh", pal.text_muted).on_hover_text(t!("action-rescan")).clicked() {
-                        cmds.push(Cmd::Rescan);
-                    }
-                    let folder = active.as_ref().and_then(|r| r.parent().map(Path::to_path_buf)).unwrap_or_default();
-                    if forma_ui::icons::flat_button(ui, "folder-new", pal.text_muted).on_hover_text(t!("action-new-folder")).clicked() {
-                        cmds.push(Cmd::NewFolderDialog { parent: folder.clone() });
-                    }
-                    if forma_ui::icons::flat_button(ui, "note-new", pal.text_muted).on_hover_text(t!("action-new-note")).clicked() {
-                        cmds.push(Cmd::NewNoteDialog { folder });
-                    }
-                },
-            );
-            ui.add_space(4.0);
             let Some((_, tree)) = &self.files.tree else { return };
             let expanded = &mut self.files.expanded;
             ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {

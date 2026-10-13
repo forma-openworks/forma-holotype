@@ -1,8 +1,8 @@
 //! Главное окно Forma: Holotype на оболочке платформы Forma.
 //!
 //! Шапка, меню, рабочие пространства, окно настроек и диалоги платформы — у оболочки
-//! (`forma_shell`). Holotype рисует внутри неё свои вкладки: дерево файлов, поиск, теги,
-//! заметки, граф, оглавление, обратные ссылки и сведения о заметке.
+//! (`forma_shell`). Holotype рисует внутри неё свои редакторы областей: файлы, поиск, теги,
+//! заметки с вкладками, граф, оглавление, обратные ссылки и сведения о заметке.
 //!
 //! Раскладка принадлежит хранилищу и лежит в его `.holotype/workspace.json`, рядом с
 //! раскладкой графа. Без хранилища показывается экран приветствия.
@@ -11,7 +11,7 @@ mod chrome;
 mod docs;
 mod modals;
 mod note;
-mod panes;
+mod viewer;
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Ui};
 use forma_i18n::t;
-use forma_layout::SurfaceKey;
+use forma_layout::{SurfaceKey, Zone};
 use forma_shell::{Shell, ShellCmd, reveal_in_explorer};
 
 use crate::actions;
@@ -28,12 +28,12 @@ use crate::graph::Graph;
 use crate::markdown;
 use crate::sample;
 use crate::settings::HolotypeSettings;
-use crate::tabs::{Pane, Space, Tab, ViewMode};
+use crate::panes::{self, Kind, NoteTab, Pane, Space, ViewMode};
 use crate::theme::Palette;
 use crate::vault::{SearchHit, Vault};
 pub use docs::{Docs, NoteView};
 use modals::Modal;
-pub use panes::Viewer;
+pub use viewer::Viewer;
 
 /// Действия, которые копятся за кадр и выполняются в его конце.
 pub enum Cmd {
@@ -56,8 +56,8 @@ pub enum Cmd {
     SetMode { tab: Option<u64>, mode: ViewMode },
     Back(Option<u64>),
     Forward(Option<u64>),
-    /// Показать вкладку панели (а если её нет — открыть).
-    ShowPane(Pane),
+    /// Показать редактор этого вида (а если его нет — открыть).
+    ShowPane(Kind),
     QuickOpen,
     CloseNote,
     /// Следующая (`true`) или предыдущая заметка в области текущей.
@@ -209,7 +209,7 @@ impl HolotypeApp {
                 self.vault = Some(v);
                 self.shell.welcome = false;
                 // Заметок в раскладке нет — открываем приветственную, если она есть.
-                if !self.shell.layout.all_tabs().any(|t| t.note.is_some()) {
+                if panes::note_tabs(&self.shell.layout).next().is_none() {
                     let first = self.vault.as_ref().and_then(|v| {
                         v.notes
                             .iter()
@@ -241,32 +241,21 @@ impl HolotypeApp {
         }
     }
 
-    /// Вкладка заметки, с которой работали последней, и её заметка.
-    fn current_note(&self) -> Option<(u64, Option<PathBuf>)> {
-        let id = self.current?;
-        self.shell.layout.all_tabs().find(|t| t.id == id && t.pane == Pane::Note).map(|t| (t.id, t.note.clone()))
-    }
-
+    /// Заметка вкладки, с которой работали последней.
     fn current_rel(&self) -> Option<PathBuf> {
-        self.current_note().and_then(|(_, rel)| rel)
+        panes::note_tab(&self.shell.layout, self.current?).map(|n| n.rel.clone())
     }
 
     /// Какая вкладка заметки текущая: активная во вкладках области, где работали последней.
     fn update_current(&mut self) {
         let layout = &self.shell.layout;
-        let focused = layout
-            .dock
-            .focused(SurfaceKey::Main)
-            .and_then(|a| layout.surface().area(a))
-            .and_then(|a| a.active_tab())
-            .filter(|t| t.pane == Pane::Note)
-            .map(|t| t.id);
+        let focused = layout.dock.focused(SurfaceKey::Main).and_then(|a| layout.surface().area(a)).and_then(|a| a.editor.active_note()).map(|n| n.id);
         if focused.is_some() {
             self.current = focused;
         }
-        let alive = self.current.is_some_and(|id| layout.all_tabs().any(|t| t.id == id && t.pane == Pane::Note));
+        let alive = self.current.is_some_and(|id| panes::note_tab(layout, id).is_some());
         if !alive {
-            self.current = layout.visible_tabs().find(|t| t.pane == Pane::Note).map(|t| t.id);
+            self.current = layout.visible_editors().find_map(Pane::active_note).map(|n| n.id);
         }
     }
 
@@ -282,7 +271,8 @@ impl HolotypeApp {
     }
 
     /// Открывает заметку: уже открытую — показывает, иначе заменяет заметку во вкладке
-    /// `tab` (или в текущей вкладке заметки), а с `new_tab` — открывает новую вкладку.
+    /// `tab` (или в текущей вкладке заметки), а с `new_tab` — открывает новую вкладку
+    /// в редакторе заметок.
     fn open_note(&mut self, rel: PathBuf, new_tab: bool, tab: Option<u64>) {
         let Some(vault) = &self.vault else { return };
         if vault.index_of(&rel).is_none() {
@@ -290,15 +280,17 @@ impl HolotypeApp {
         }
         self.expand_to(&rel);
         let layout = &mut self.shell.layout;
-        // 1. Вкладка с этой заметкой уже есть.
+        // 1. Вкладка с этой заметкой уже есть — показываем её.
         let mut shown = None;
-        if layout.show_tab(|t| {
-            let hit = t.note.as_ref() == Some(&rel);
-            if hit {
-                shown = Some(t.id);
-            }
-            hit
-        }) {
+        if layout.update_editor(
+            |p| p.kind == Kind::Note && p.notes.iter().any(|n| n.rel == rel),
+            |p| {
+                if let Some(i) = p.notes.iter().position(|n| n.rel == rel) {
+                    p.active = i;
+                    shown = Some(p.notes[i].id);
+                }
+            },
+        ) {
             self.current = shown;
             return;
         }
@@ -306,13 +298,7 @@ impl HolotypeApp {
         let target = if new_tab { None } else { tab.or(self.current) };
         if let Some(id) = target {
             let mut old = None;
-            let replaced = layout.update_tab(
-                |t| t.id == id && t.pane == Pane::Note,
-                |t| {
-                    old = t.note.replace(rel.clone());
-                },
-            );
-            if replaced {
+            if panes::update_note_tab(layout, id, |t| old = Some(std::mem::replace(&mut t.rel, rel.clone()))) {
                 let view = self.views.entry(id).or_default();
                 if let Some(old) = old {
                     view.back.push(old);
@@ -323,23 +309,23 @@ impl HolotypeApp {
                 return;
             }
         }
-        // 3. Пустая вкладка заметки ждёт — заполняем её.
-        let mut filled = None;
-        if !new_tab
-            && layout.update_tab(
-                |t| t.pane == Pane::Note && t.note.is_none(),
-                |t| {
-                    t.note = Some(rel.clone());
-                    filled = Some(t.id);
-                },
-            )
-        {
-            self.current = filled;
-            return;
-        }
-        // 4. Новая вкладка рядом с другими заметками.
+        // 3. Новая вкладка: рядом с текущей, в любом редакторе заметок или в новой области.
         let id = layout.next_id();
-        layout.open_near(Tab::note(id, rel), |t| t.pane == Pane::Note);
+        let current = self.current;
+        let mut tab = Some(NoteTab { id, rel, mode: None });
+        let mut push = |p: &mut Pane| {
+            if let Some(t) = tab.take() {
+                p.notes.push(t);
+                p.active = p.notes.len() - 1;
+            }
+        };
+        let placed = current.is_some_and(|c| layout.update_editor(|p| p.position(c).is_some(), &mut push))
+            || layout.update_editor(|p| p.kind == Kind::Note, &mut push);
+        if !placed && let Some(t) = tab {
+            let mut pane = Pane::new(Kind::Note, layout.next_id());
+            pane.notes.push(t);
+            layout.open_editor(pane, |_| false, None, 0.5);
+        }
         self.current = Some(id);
     }
 
@@ -402,8 +388,9 @@ impl HolotypeApp {
         let Some(vault) = &self.vault else { return };
         let len = self.docs.get_or_load(vault, rel).map(|d| d.text.len()).unwrap_or(0);
         let default_mode = self.notes().default_mode;
-        self.shell.layout.update_tab(
-            |t| t.id == id,
+        panes::update_note_tab(
+            &mut self.shell.layout,
+            id,
             |t| {
                 if t.mode.unwrap_or(default_mode) == ViewMode::Preview {
                     t.mode = Some(ViewMode::Edit);
@@ -420,28 +407,20 @@ impl HolotypeApp {
         self.current_rel().and_then(|r| r.parent().map(Path::to_path_buf)).unwrap_or_default()
     }
 
-    /// Закрывает вкладку по номеру (как крестик на вкладке): заметка сохраняется.
+    /// Закрывает вкладку заметки по номеру (как крестик на вкладке): заметка сохраняется.
     fn close_tab(&mut self, id: u64) {
-        let mut closed: Option<Tab> = None;
-        let mut take = |s: &mut forma_layout::Surface<Tab>| {
-            if closed.is_some() {
-                return;
+        let mut closed: Option<NoteTab> = None;
+        self.shell.layout.for_each_editor_mut(|p| {
+            if closed.is_none()
+                && let Some(i) = p.position(id)
+            {
+                closed = p.close(i);
             }
-            let found = s.areas().into_iter().find_map(|a| a.tabs.iter().position(|t| t.id == id).map(|i| (a.id, i)));
-            if let Some((area, i)) = found {
-                closed = s.remove_tab(area, i);
-            }
-        };
-        let layout = &mut self.shell.layout;
-        let active = layout.active;
-        take(&mut layout.workspaces[active].surface);
-        for w in &mut layout.dock.windows {
-            take(&mut w.surface);
-        }
+        });
         if let Some(tab) = closed {
-            if let (Some(rel), Some(vault)) = (&tab.note, &mut self.vault) {
+            if let Some(vault) = &mut self.vault {
                 let now = self.shell.now();
-                if let Err(e) = self.docs.save(vault, rel, now) {
+                if let Err(e) = self.docs.save(vault, &tab.rel, now) {
                     self.shell.toast(e, true);
                 }
             }
@@ -449,26 +428,35 @@ impl HolotypeApp {
         }
     }
 
-    /// Показывает вкладку панели; одиночную панель, которой нет, открывает.
-    fn show_pane(&mut self, pane: Pane) {
+    /// Показывает редактор этого вида. Если его нет, а есть соседний по группе (файлы, поиск
+    /// и теги; оглавление, ссылки и сведения) — область переключается на нужный вид, как
+    /// вкладки одной панели раньше; иначе открывается новая область.
+    fn show_pane(&mut self, kind: Kind) {
         let layout = &mut self.shell.layout;
-        if !pane.many() && layout.show_tab(|t| t.pane == pane) {
-            return;
+        let group = |k: Kind| match k {
+            Kind::Files | Kind::Search | Kind::Tags => 1,
+            Kind::Outline | Kind::Backlinks | Kind::Info => 2,
+            Kind::Note | Kind::Graph => 0,
+        };
+        let shown = layout.show_editor(|p| p.kind == kind)
+            || (group(kind) != 0 && layout.update_editor(|p| group(p.kind) == group(kind), |p| p.kind = kind));
+        if !shown {
+            let id = layout.next_id();
+            let (side, share) = match group(kind) {
+                1 => (Some(Zone::Left), 0.22),
+                2 => (Some(Zone::Right), 0.25),
+                _ => (None, 0.5),
+            };
+            layout.open_editor(Pane::new(kind, id), |_| false, side, share);
         }
-        if pane == Pane::Graph && layout.show_tab(|t| t.pane == Pane::Graph) {
-            self.graph.reheat();
-            return;
-        }
-        let id = layout.next_id();
-        layout.dock.open_tab(Tab::new(pane, id));
-        if pane == Pane::Graph {
+        if kind == Kind::Graph {
             self.graph.reheat();
         }
     }
 
     fn set_mode(&mut self, tab: Option<u64>, mode: ViewMode) {
         let Some(id) = tab.or(self.current) else { return };
-        self.shell.layout.update_tab(|t| t.id == id && t.pane == Pane::Note, |t| t.mode = Some(mode));
+        panes::update_note_tab(&mut self.shell.layout, id, |t| t.mode = Some(mode));
         if mode != ViewMode::Preview {
             self.views.entry(id).or_default().focus_editor = true;
         }
@@ -476,7 +464,7 @@ impl HolotypeApp {
 
     fn mode_of(&self, id: u64) -> ViewMode {
         let default = self.notes().default_mode;
-        self.shell.layout.all_tabs().find(|t| t.id == id).and_then(|t| t.mode).unwrap_or(default)
+        panes::note_tab(&self.shell.layout, id).and_then(|t| t.mode).unwrap_or(default)
     }
 
     fn history(&mut self, tab: Option<u64>, back: bool) {
@@ -489,7 +477,7 @@ impl HolotypeApp {
             return;
         }
         let mut old = None;
-        self.shell.layout.update_tab(|t| t.id == id, |t| old = t.note.replace(target.clone()));
+        panes::update_note_tab(&mut self.shell.layout, id, |t| old = Some(std::mem::replace(&mut t.rel, target.clone())));
         let view = self.views.entry(id).or_default();
         if let Some(old) = old {
             if back {
@@ -503,22 +491,23 @@ impl HolotypeApp {
         self.expand_to(&target);
     }
 
-    /// Следующая или предыдущая вкладка в области текущей заметки.
+    /// Следующая или предыдущая вкладка в редакторе текущей заметки.
     fn cycle_note(&mut self, forward: bool) {
         let Some(id) = self.current else { return };
         let mut next = None;
-        self.shell.layout.surface_mut().for_each_area_mut(|a| {
-            if let Some(i) = a.tabs.iter().position(|t| t.id == id) {
-                let n = a.tabs.len();
-                let j = if forward { (i + 1) % n } else { (i + n - 1) % n };
-                a.active = j;
-                next = Some(a.tabs[j].id);
-            }
-        });
-        if let Some(next) = next
-            && self.shell.layout.all_tabs().any(|t| t.id == next && t.pane == Pane::Note)
-        {
-            self.current = Some(next);
+        self.shell.layout.update_editor(
+            |p| p.position(id).is_some(),
+            |p| {
+                if let Some(i) = p.position(id) {
+                    let n = p.notes.len();
+                    let j = if forward { (i + 1) % n } else { (i + n - 1) % n };
+                    p.active = j;
+                    next = Some(p.notes[j].id);
+                }
+            },
+        );
+        if next.is_some() {
+            self.current = next;
         }
     }
 
@@ -568,7 +557,7 @@ impl HolotypeApp {
             Ok((new_rel, changed)) => {
                 self.docs.moved(target, &new_rel);
                 self.docs.reload_changed(v, &changed);
-                retarget_tabs(&mut self.shell.layout, target, &new_rel);
+                panes::retarget(&mut self.shell.layout, target, &new_rel);
                 if !changed.is_empty() {
                     self.shell.toast(t!("toast-links-updated", count = changed.len()), false);
                 }
@@ -583,7 +572,7 @@ impl HolotypeApp {
         match v.delete(target) {
             Ok(()) => {
                 self.docs.removed(target);
-                let gone: Vec<u64> = self.shell.layout.all_tabs().filter(|t| t.note.as_ref().is_some_and(|r| r.starts_with(target))).map(|t| t.id).collect();
+                let gone: Vec<u64> = panes::note_tabs(&self.shell.layout).filter(|t| t.rel.starts_with(target)).map(|t| t.id).collect();
                 for id in gone {
                     self.close_tab(id);
                 }
@@ -599,7 +588,7 @@ impl HolotypeApp {
         match vault.move_to(from, to) {
             Ok(new_rel) => {
                 self.docs.moved(from, &new_rel);
-                retarget_tabs(&mut self.shell.layout, from, &new_rel);
+                panes::retarget(&mut self.shell.layout, from, &new_rel);
                 self.files.expanded.insert(to.to_path_buf());
             }
             Err(e) => self.shell.toast(t!("toast-move-failed", error = e.to_string()), true),
@@ -665,7 +654,7 @@ impl HolotypeApp {
             EXPORT_NOTE => Cmd::ExportNote,
             EXPORT_SITE => Cmd::ExportSite,
             QUICK_OPEN => Cmd::QuickOpen,
-            SEARCH => Cmd::ShowPane(Pane::Search),
+            SEARCH => Cmd::ShowPane(Kind::Search),
             BACK => Cmd::Back(None),
             FORWARD => Cmd::Forward(None),
             // Ctrl+E: чтение ⇄ правка.
@@ -675,7 +664,7 @@ impl HolotypeApp {
                 Cmd::SetMode { tab: Some(id), mode }
             }
             SPLIT => Cmd::SetMode { tab: None, mode: ViewMode::Split },
-            GRAPH => Cmd::ShowPane(Pane::Graph),
+            GRAPH => Cmd::ShowPane(Kind::Graph),
             RENAME => Cmd::RenameDialog(self.current_rel()?),
             CLOSE_NOTE => Cmd::CloseNote,
             NEXT_NOTE => Cmd::CycleNote(true),
@@ -734,15 +723,15 @@ impl HolotypeApp {
             Cmd::ToggleTask { rel, range } => self.toggle_task(&rel, range),
             Cmd::SearchTag(tag) => {
                 self.search.query = format!("#{tag}");
-                self.show_pane(Pane::Search);
+                self.show_pane(Kind::Search);
             }
             Cmd::OpenUrl(url) => ctx.open_url(egui::OpenUrl::new_tab(url)),
             Cmd::SetMode { tab, mode } => self.set_mode(tab, mode),
             Cmd::Back(tab) => self.history(tab, true),
             Cmd::Forward(tab) => self.history(tab, false),
-            Cmd::ShowPane(pane) => {
-                self.show_pane(pane);
-                if pane == Pane::Search {
+            Cmd::ShowPane(kind) => {
+                self.show_pane(kind);
+                if kind == Kind::Search {
                     self.search.focus = true;
                 }
             }
@@ -822,13 +811,13 @@ impl HolotypeApp {
         }
 
         // Заметки без вкладок больше не нужны.
-        let open: HashSet<PathBuf> = self.shell.layout.all_tabs().filter_map(|t| t.note.clone()).collect();
+        let open: HashSet<PathBuf> = panes::note_tabs(&self.shell.layout).map(|t| t.rel.clone()).collect();
         if let Some(vault) = &mut self.vault {
             for err in self.docs.retain_open(vault, &open, now) {
                 self.shell.toast(err, true);
             }
         }
-        let tabs: HashSet<u64> = self.shell.layout.all_tabs().map(|t| t.id).collect();
+        let tabs: HashSet<u64> = panes::note_tabs(&self.shell.layout).map(|t| t.id).collect();
         self.views.retain(|id, _| tabs.contains(id));
 
         // Цвета заметок — из текущей темы, акцентный цвет — из настроек «Заметки».
@@ -951,29 +940,6 @@ impl eframe::App for HolotypeApp {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         self.shell.pal.window_bg.to_normalized_gamma_f32()
-    }
-}
-
-/// Вкладки заметок после переименования или переноса `from` → `to` (файла или папки).
-fn retarget_tabs(layout: &mut forma_shell::Layout<Space>, from: &Path, to: &Path) {
-    let fix = |s: &mut forma_layout::Surface<Tab>| {
-        s.for_each_area_mut(|a| {
-            for t in &mut a.tabs {
-                if let Some(rel) = &mut t.note {
-                    if rel == from {
-                        *rel = to.to_path_buf();
-                    } else if let Ok(rest) = rel.strip_prefix(from) {
-                        *rel = to.join(rest);
-                    }
-                }
-            }
-        });
-    };
-    for w in &mut layout.workspaces {
-        fix(&mut w.surface);
-    }
-    for w in &mut layout.dock.windows {
-        fix(&mut w.surface);
     }
 }
 

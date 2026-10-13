@@ -20,7 +20,7 @@ use forma_ui::settings_window::{self as sw, PageInfo};
 use forma_ui::theme::Palette;
 use serde::{Deserialize, Serialize};
 
-use crate::tabs::ViewMode;
+use crate::panes::ViewMode;
 use crate::theme::Accent;
 
 /// Страница «Заметки» в окне настроек.

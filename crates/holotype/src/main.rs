@@ -22,9 +22,9 @@ mod i18n;
 mod icon;
 mod icons;
 mod math;
+mod panes;
 mod render;
 mod settings;
-mod tabs;
 mod term;
 mod theme;
 
@@ -54,5 +54,5 @@ fn main() {
     let vault_arg = std::env::args_os().nth(1).map(std::path::PathBuf::from);
     fonts::register();
     icons::register();
-    forma_shell::run::<settings::HolotypeSettings, tabs::Space, _>(&SPEC, actions::register, move |cc, shell| app::HolotypeApp::new(cc, shell, vault_arg));
+    forma_shell::run::<settings::HolotypeSettings, panes::Space, _>(&SPEC, actions::register, move |cc, shell| app::HolotypeApp::new(cc, shell, vault_arg));
 }

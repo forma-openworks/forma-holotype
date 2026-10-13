@@ -50,7 +50,7 @@ action-open-new-tab = Open in new tab
 action-create = Create
 action-delete = Delete
 
-## Tabs and workspaces
+## Area editors and workspaces
 
 mode-edit = Edit
 mode-split = Split
@@ -64,6 +64,11 @@ pane-graph = Graph
 pane-outline = Outline
 pane-backlinks = Backlinks
 pane-info = Info
+kind-group-notes = Notes
+kind-group-navigation = Navigation
+kind-group-about = About the note
+tab-close-others = Close Other Tabs
+tab-close-all = Close All Tabs
 
 workspace-notes = Notes
 workspace-graph = Graph

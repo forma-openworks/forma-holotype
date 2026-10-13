@@ -10,7 +10,7 @@ use forma_shell::workspace;
 
 use super::{Cmd, HolotypeApp, Viewer};
 use crate::actions;
-use crate::tabs::{Pane, ViewMode};
+use crate::panes::{Kind, ViewMode};
 
 impl HolotypeApp {
     /// Заголовки меню — по ним оболочка считает, помещаются ли меню целиком.
@@ -90,7 +90,7 @@ impl HolotypeApp {
                         }
                         ui.separator();
                         if ui.add(icon_item(ui, "graph", t!("action-graph"), shell.keys(actions::GRAPH))).clicked() {
-                            cmds.push(Cmd::ShowPane(Pane::Graph));
+                            cmds.push(Cmd::ShowPane(Kind::Graph));
                             ui.close();
                         }
                         ui.separator();
@@ -106,7 +106,7 @@ impl HolotypeApp {
                             cmds.push(Cmd::QuickOpen);
                         }
                         if ui.add(item(t!("action-search"), shell.keys(actions::SEARCH))).clicked() {
-                            cmds.push(Cmd::ShowPane(Pane::Search));
+                            cmds.push(Cmd::ShowPane(Kind::Search));
                         }
                         ui.separator();
                         if ui.add(icon_item(ui, "back", t!("action-back"), shell.keys(actions::BACK))).clicked() {
@@ -118,9 +118,9 @@ impl HolotypeApp {
                     });
                     m.menu(&t!("menu-window"), false, |ui| {
                         shell.window_menu(ui, |ui| {
-                            for pane in Pane::ALL {
-                                if forma_ui::icons::item(ui, pane.icon(), pane.title(), false).clicked() {
-                                    cmds.push(Cmd::ShowPane(pane));
+                            for kind in Kind::ALL {
+                                if forma_ui::icons::item(ui, kind.icon(), kind.title(), false).clicked() {
+                                    cmds.push(Cmd::ShowPane(kind));
                                 }
                             }
                         });
@@ -186,14 +186,14 @@ impl HolotypeApp {
         });
     }
 
-    /// Области с вкладками текущего рабочего пространства и отдельные окна.
+    /// Области текущего рабочего пространства и отдельные окна.
     pub(super) fn dock_ui(&mut self, ui: &mut Ui) {
         let now = self.shell.now();
         let current_rel = self.current_rel();
         let shortcuts = !self.shell.modal_open();
         let shell = &mut self.shell;
         let window_bg = shell.pal.window_bg;
-        let (surface, dock, next_tab) = shell.layout.parts();
+        let (surface, dock, next_id) = shell.layout.parts();
         let mut viewer = Viewer {
             pal: &self.pal,
             fpal: &shell.pal,
@@ -211,7 +211,7 @@ impl HolotypeApp {
             keymap: &shell.settings.keymap,
             fired: &mut shell.fired,
             shortcuts,
-            next_tab,
+            next_id,
             cmds: &mut self.cmds,
             now,
         };

@@ -26,7 +26,7 @@
 
 ### What it is
 
-Forma: Holotype is a desktop app for notes, study notes and documentation in the spirit of Obsidian. It is part of FORMA and is built on [Forma Core](https://github.com/forma-openworks/forma-core): "different apps, one base". The window, areas and tabs, workspaces, themes, settings, keymap, Find Action, plugins and translations are shared with [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype brings only its own parts: notes, the editor, the reading view, the graph, formulas, diagrams and export.
+Forma: Holotype is a desktop app for notes, study notes and documentation in the spirit of Obsidian. It is part of FORMA and is built on [Forma Core](https://github.com/forma-openworks/forma-core): "different apps, one base". The window, areas, workspaces, themes, settings, keymap, Find Action, plugins and translations are shared with [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype brings only its own parts: notes, the editor, the reading view, the graph, formulas, diagrams and export.
 
 Notes are plain `.md` files in a folder (a "vault"), so they open in any editor and can live in git.
 
@@ -54,7 +54,7 @@ A holotype is the first specimen a new species is described from.
 - **Export to HTML:** a single note into one file with images inside, or the whole vault as a static documentation site with navigation.
 
 **Feels like home (Forma Core)**
-- **A layout in the spirit of Blender.** Files, search, tags, notes, the graph, the outline, backlinks and info are tabs. Drag them between areas, split areas, tear tabs out into separate OS windows.
+- **A layout in the spirit of Blender.** Every area holds one editor, picked from the menu at the left of its header: notes (with their own tabs), files, search, tags, the graph, the outline, backlinks or info. Drag an area corner to split, join or swap areas; drag a header to move an area to another place or a separate OS window.
 - **Workspaces** Notes, Graph and Focus, plus your own. The layout is remembered per vault (`.holotype/workspace.json`).
 - **A window frame of its own** with the app's top bar instead of the Windows title bar.
 - **Themes:** Holotype Dark and Holotype Light by default, Mycelium Dark and Light, Visual Studio Dark as a plugin, and your own `.toml` themes. Note colors have their own keys (`note.*`). An accent color for notes can be set on top of any theme.
@@ -141,8 +141,8 @@ Every one of them can be changed in **Settings → Keymap**.
 | `crates/holotype-vault` | Data without UI: the vault (`vault.rs`), Markdown parsing (`markdown.rs`), the demo vault (`sample.rs`) |
 | `crates/holotype` | The app |
 | `crates/holotype/src/main.rs` | The app description for the Forma shell (`SPEC`) and startup |
-| `crates/holotype/src/app/` | The app inside the shell: commands, open notes, the note tab, panes, menus and status bar, dialogs |
-| `crates/holotype/src/tabs.rs`, `actions.rs`, `settings.rs` | Tabs and built-in workspaces, actions and default shortcuts, the Notes settings |
+| `crates/holotype/src/app/` | The app inside the shell: commands, open notes, the note view, area editors, menus and status bar, dialogs |
+| `crates/holotype/src/panes.rs`, `actions.rs`, `settings.rs` | Area editors, note tabs and built-in workspaces, actions and default shortcuts, the Notes settings |
 | `crates/holotype/src/render.rs`, `editor.rs` | The reading view and editor highlighting |
 | `crates/holotype/src/emmet.rs`, `complete.rs`, `assist.rs` | Abbreviations, completion and its popup |
 | `crates/holotype/src/math.rs`, `diagram/` | The formula engine; mermaid and DOT parsing, graph layout, drawing and SVG export |
@@ -171,7 +171,7 @@ Forma: Holotype is part of FORMA. Idea and design: Holo. The code is written ent
 
 ### Что это
 
-Forma: Holotype — программа для заметок, конспектов и документации в духе Obsidian. Она часть FORMA и построена на [Forma Core](https://github.com/forma-openworks/forma-core): «разные приложения — одна основа». Окно, области и вкладки, рабочие пространства, темы, настройки, горячие клавиши, «Найти действие», плагины и переводы общие с [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype приносит только своё: заметки, редактор, просмотр, граф, формулы, диаграммы и экспорт.
+Forma: Holotype — программа для заметок, конспектов и документации в духе Obsidian. Она часть FORMA и построена на [Forma Core](https://github.com/forma-openworks/forma-core): «разные приложения — одна основа». Окно, области, рабочие пространства, темы, настройки, горячие клавиши, «Найти действие», плагины и переводы общие с [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype приносит только своё: заметки, редактор, просмотр, граф, формулы, диаграммы и экспорт.
 
 Заметки — обычные `.md` файлы в папке («хранилище»), поэтому их можно открыть в любом редакторе или держать в git.
 
@@ -199,7 +199,7 @@ Forma: Holotype — программа для заметок, конспекто
 - **Экспорт в HTML:** одна заметка в отдельный файл (картинки встраиваются внутрь) или всё хранилище как статический сайт документации с навигацией.
 
 **Как дома (Forma Core)**
-- **Раскладка в духе Blender.** Файлы, поиск, теги, заметки, граф, оглавление, обратные ссылки и сведения — вкладки. Их можно перетаскивать между областями, делить области и выносить в отдельные окна.
+- **Раскладка в духе Blender.** В каждой области один редактор, его вид выбирается в меню слева в заголовке: заметки (со своими вкладками), файлы, поиск, теги, граф, оглавление, обратные ссылки или сведения. За уголок области её делят, объединяют с соседней и меняют местами; за заголовок — переносят в другое место или в отдельное окно.
 - **Рабочие пространства** «Заметки», «Граф» и «Фокус», плюс свои. Раскладка запоминается для каждого хранилища (`.holotype/workspace.json`).
 - **Своя рамка окна:** вместо заголовка Windows — верхняя строка программы.
 - **Темы:** по умолчанию Holotype Dark и Holotype Light, ещё Mycelium Dark и Light, Visual Studio Dark из плагина и свои темы в `.toml`. У цветов заметок свои ключи (`note.*`). Поверх любой темы можно задать акцентный цвет заметок.
@@ -286,8 +286,8 @@ cargo test
 | `crates/holotype-vault` | Данные без интерфейса: хранилище (`vault.rs`), разбор Markdown (`markdown.rs`), демо-хранилище (`sample.rs`) |
 | `crates/holotype` | Сама программа |
 | `crates/holotype/src/main.rs` | Описание программы для оболочки Forma (`SPEC`) и запуск |
-| `crates/holotype/src/app/` | Программа внутри оболочки: команды, открытые заметки, вкладка заметки, панели, меню и строка состояния, диалоги |
-| `crates/holotype/src/tabs.rs`, `actions.rs`, `settings.rs` | Вкладки и встроенные рабочие пространства, действия и сочетания по умолчанию, настройки «Заметки» |
+| `crates/holotype/src/app/` | Программа внутри оболочки: команды, открытые заметки, просмотр заметки, редакторы областей, меню и строка состояния, диалоги |
+| `crates/holotype/src/panes.rs`, `actions.rs`, `settings.rs` | Редакторы областей, вкладки заметок и встроенные рабочие пространства, действия и сочетания по умолчанию, настройки «Заметки» |
 | `crates/holotype/src/render.rs`, `editor.rs` | Просмотр заметки и подсветка в редакторе |
 | `crates/holotype/src/emmet.rs`, `complete.rs`, `assist.rs` | Сокращения, подсказки и их всплывающий список |
 | `crates/holotype/src/math.rs`, `diagram/` | Движок формул; разбор mermaid и DOT, раскладка графов, рисование и выгрузка в SVG |
