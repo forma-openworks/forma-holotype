@@ -32,6 +32,26 @@ pub enum Action {
     OpenUrl(String),
     ToggleTask(Range<usize>),
     SearchTag(String),
+    /// Указатель над символом `offset` текста `text`: спросить подсказку у плагинов. Ответ
+    /// ([`HoverAnswer`]) программа кладёт в память egui по ключу `key`.
+    Hover { key: egui::Id, text: String, offset: usize },
+}
+
+/// Подсказка плагина к тексту под указателем: к каким символам относится и что показать.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HoverAnswer {
+    /// Отпечаток текста, к которому подсказка (текст абзаца мог поменяться).
+    pub text_hash: u64,
+    pub range: Range<usize>,
+    pub markdown: String,
+}
+
+/// Отпечаток текста для [`HoverAnswer`].
+pub fn text_hash(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    h.finish()
 }
 
 /// Базовый формат текста для набора инлайнов.
@@ -92,6 +112,8 @@ pub struct Renderer<'a> {
     pub doc: &'a Doc,
     pub size: f32,
     pub actions: Vec<Action>,
+    /// Спрашивать ли подсказки у плагинов (термины курса), когда указатель над текстом.
+    pub hovers: bool,
     /// Запрошенная прокрутка к заголовку (текст в нижнем регистре) или сноске (`^метка`).
     pub scroll_to: Option<String>,
     anchors: Vec<(String, Rect)>,
@@ -115,6 +137,7 @@ impl<'a> Renderer<'a> {
             doc,
             size,
             actions: Vec::new(),
+            hovers: false,
             scroll_to: None,
             anchors: Vec::new(),
             counter: 0,
@@ -540,8 +563,39 @@ impl<'a> Renderer<'a> {
             }
         }
 
+        // Подсказки плагинов (термины курса): что под указателем — запрос программе. Ответ
+        // приходит в следующем кадре и держится, пока указатель внутри найденного term.
+        let mut plugin_hover: Option<HoverAnswer> = None;
+        if self.hovers
+            && new_hover.is_none()
+            && let Some(p) = resp.hover_pos()
+        {
+            let offset: usize = galley.cursor_from_pos(p - pos).index.into();
+            let hash = text_hash(galley.text());
+            let key = id.with("plugin-hover");
+            let answer: Option<HoverAnswer> = ui.data(|d| d.get_temp::<Option<HoverAnswer>>(key)).flatten();
+            match answer.filter(|a| a.text_hash == hash && a.range.contains(&offset)) {
+                Some(a) => plugin_hover = Some(a),
+                None => {
+                    let asked: Option<(u64, usize)> = ui.data(|d| d.get_temp(key.with("asked")));
+                    if asked != Some((hash, offset)) {
+                        ui.data_mut(|d| d.insert_temp(key.with("asked"), (hash, offset)));
+                        self.actions.push(Action::Hover { key, text: galley.text().to_owned(), offset });
+                    }
+                }
+            }
+        }
+
         if ui.is_rect_visible(resp.rect) {
             self.paint_decos(ui, pos, &galley, &decos, fmt.size, hovered);
+            // Найденный term — пунктиром снизу, как подсказка в IDE.
+            if let Some(a) = &plugin_hover {
+                for (x0, x1, baseline) in span_segments(&galley, &a.range) {
+                    let y = pos.y + baseline + fmt.size * 0.2;
+                    let line = [egui::pos2(pos.x + x0, y), egui::pos2(pos.x + x1, y)];
+                    ui.painter().extend(egui::Shape::dotted_line(&line, self.pal.accent, 3.0, 0.9));
+                }
+            }
             LabelSelectionState::label_text_selection(ui, &resp, pos, galley.clone(), fmt.color, Stroke::NONE);
             self.paint_deco_strikes(ui, pos, &galley, &decos, fmt);
             for (ci, mbox, shift) in &maths {
@@ -550,6 +604,15 @@ impl<'a> Renderer<'a> {
                     mbox.paint(ui.painter(), p, fmt.color);
                 }
             }
+        }
+        // Карточка подсказки — маленькая заметка: markdown рисует тот же renderer.
+        if let Some(a) = plugin_hover {
+            let (pal, vault, note, size) = (self.pal, self.vault, self.note_rel, self.size);
+            resp.clone().on_hover_ui_at_pointer(|ui| {
+                ui.set_max_width(size * 24.0);
+                let doc = crate::markdown::parse(&a.markdown);
+                Renderer::new(pal, vault, note, &doc, size * 0.92).show(ui);
+            });
         }
         // Щелчок по тексту задачи переключает её галочку (если щёлкнули не по ссылке).
         if let Some(range) = self.task.clone() {
@@ -944,7 +1007,7 @@ impl<'a> Renderer<'a> {
                 ui.add(Label::new(job).extend().selectable(false));
                 ui.add_space(self.size * 1.1);
             }
-            let job = highlight::job(ui.ctx(), code, &cb.lang, pal.dark, code_size, line_h);
+            let job = highlight::job(ui.ctx(), code, &cb.lang, code_size, line_h);
             ScrollArea::horizontal().id_salt(scroll).show(ui, |ui| {
                 ui.add(Label::new(job).extend().selectable(true));
             });

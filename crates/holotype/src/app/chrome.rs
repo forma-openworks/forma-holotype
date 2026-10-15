@@ -193,6 +193,7 @@ impl HolotypeApp {
         let shortcuts = !self.shell.modal_open();
         let shell = &mut self.shell;
         let window_bg = shell.pal.window_bg;
+        let plugin_hovers = shell.plugin_runtime.as_ref().is_some_and(|r| r.has_hovers());
         let (surface, dock, next_id) = shell.layout.parts();
         let mut viewer = Viewer {
             pal: &self.pal,
@@ -214,6 +215,7 @@ impl HolotypeApp {
             next_id,
             cmds: &mut self.cmds,
             now,
+            plugin_hovers,
         };
         workspace::show(ui, surface, dock, &shell.dock_style, window_bg, &mut viewer);
     }

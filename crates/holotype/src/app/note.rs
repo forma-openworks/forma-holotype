@@ -41,6 +41,8 @@ pub struct NoteCx<'a> {
     pub default_mode: ViewMode,
     pub keys: Keys<'a>,
     pub now: f64,
+    /// У плагинов есть подсказки при наведении (термины курса).
+    pub plugin_hovers: bool,
 }
 
 /// Вкладка заметки `tab`: заметка `doc` и состояние вкладки `view`.
@@ -116,6 +118,7 @@ pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, doc: &mu
             Action::OpenUrl(u) => Cmd::OpenUrl(u),
             Action::ToggleTask(r) => Cmd::ToggleTask { rel: rel.to_path_buf(), range: r },
             Action::SearchTag(t) => Cmd::SearchTag(t),
+            Action::Hover { key, text, offset } => Cmd::PluginHover { key, text, offset, note: rel.to_path_buf() },
         });
     }
 }
@@ -124,6 +127,7 @@ pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, doc: &mu
 fn preview(ui: &mut Ui, cx: &NoteCx, rel: &Path, doc: &mut NoteDoc, view: &mut NoteView, actions: &mut Vec<Action>) {
     let parsed = doc.parsed();
     let mut r = Renderer::new(cx.pal, cx.vault, rel, parsed, cx.size);
+    r.hovers = cx.plugin_hovers;
     r.scroll_to = view.preview_scroll.take();
     r.show(ui);
     actions.append(&mut r.actions);

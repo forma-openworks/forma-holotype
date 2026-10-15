@@ -51,6 +51,8 @@ pub struct Viewer<'a> {
     pub next_id: &'a mut u64,
     pub cmds: &'a mut Vec<Cmd>,
     pub now: f64,
+    /// У плагинов есть подсказки при наведении.
+    pub plugin_hovers: bool,
 }
 
 impl Viewer<'_> {
@@ -344,6 +346,7 @@ impl Viewer<'_> {
             default_mode: self.notes.default_mode,
             keys: Keys { actions: self.actions, keymap: self.keymap },
             now: self.now,
+            plugin_hovers: self.plugin_hovers,
         };
         note_ui(ui, &cx, tab, &rel, doc, view, self.cmds);
     }

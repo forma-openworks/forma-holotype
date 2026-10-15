@@ -6,8 +6,8 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 
 use eframe::egui::{
-    self, Color32, FontId,
-    text::{LayoutJob, TextFormat},
+    self, Color32,
+    text::LayoutJob,
 };
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, FontStyle, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSettings};
@@ -184,71 +184,10 @@ fn to_color32(c: Color) -> Color32 {
     Color32::from_rgb(c.r, c.g, c.b)
 }
 
-#[derive(Default)]
-struct CodeHighlighter;
-
-#[derive(Clone, Copy, Hash)]
-struct Key<'a> {
-    code: &'a str,
-    lang: &'a str,
-    dark: bool,
-    size_bits: u32,
-    line_height_bits: u32,
-}
-
-impl egui::cache::ComputerMut<Key<'_>, LayoutJob> for CodeHighlighter {
-    fn compute(&mut self, key: Key<'_>) -> LayoutJob {
-        build_job(key.code, key.lang, key.dark, f32::from_bits(key.size_bits), f32::from_bits(key.line_height_bits))
-    }
-}
-
-type HighlightCache = egui::cache::FrameCache<LayoutJob, CodeHighlighter>;
-
-/// Подсвеченный код для egui (с кэшированием между кадрами).
-pub fn job(ctx: &egui::Context, code: &str, lang: &str, dark: bool, size: f32, line_height: f32) -> LayoutJob {
-    let key = Key { code, lang, dark, size_bits: size.to_bits(), line_height_bits: line_height.to_bits() };
-    ctx.memory_mut(|m| m.caches.cache::<HighlightCache>().get(key).clone())
-}
-
-fn build_job(code: &str, lang: &str, dark: bool, size: f32, line_height: f32) -> LayoutJob {
-    let mut job = LayoutJob::default();
-    let font = FontId::monospace(size);
-    let theme = theme(dark);
-    let fg = theme.settings.foreground.map(to_color32).unwrap_or(Color32::GRAY);
-    let plain = |job: &mut LayoutJob, text: &str| {
-        job.append(text, 0.0, TextFormat { font_id: font.clone(), color: fg, line_height: Some(line_height), ..Default::default() });
-    };
-    let Some(syntax) = find(lang) else {
-        plain(&mut job, code);
-        return job;
-    };
-    let mut h = HighlightLines::new(syntax, theme);
-    for line in LinesWithEndings::from(code) {
-        match h.highlight_line(line, syntaxes()) {
-            Ok(ranges) => {
-                for (style, text) in ranges {
-                    job.append(
-                        text,
-                        0.0,
-                        TextFormat {
-                            font_id: font.clone(),
-                            color: to_color32(style.foreground),
-                            line_height: Some(line_height),
-                            italics: style.font_style.contains(FontStyle::ITALIC),
-                            underline: if style.font_style.contains(FontStyle::UNDERLINE) {
-                                egui::Stroke::new(1.0, to_color32(style.foreground))
-                            } else {
-                                egui::Stroke::NONE
-                            },
-                            ..Default::default()
-                        },
-                    );
-                }
-            }
-            Err(_) => plain(&mut job, line),
-        }
-    }
-    job
+/// Подсвеченный код для egui (с кэшированием между кадрами). Цвета — из раздела `[syntax]`
+/// текущей темы Forma, как в editor: тема из плагина красит и блоки кода в заметках.
+pub fn job(ctx: &egui::Context, code: &str, lang: &str, size: f32, line_height: f32) -> LayoutJob {
+    forma_shell::highlight::job(ctx, code, lang, size, line_height)
 }
 
 /// Подсвеченный текст как участки «цвет, курсив» (для команд консоли).
@@ -333,7 +272,10 @@ mod tests {
 
     #[test]
     fn highlights_with_colors() {
-        let job = build_job("fn main() { let x = 42; } // привет", "rust", true, 14.0, 20.0);
+        // Цвета блоков кода — из темы, как в editor.
+        let themes = forma_ui::theme::Themes::new(crate::theme::BUILTIN_THEMES, None);
+        forma_shell::highlight::set_theme(&themes.resolve(crate::theme::DEFAULT_THEME, crate::theme::DEFAULT_THEME), 1);
+        let job = job(&egui::Context::default(), "fn main() { let x = 42; } // привет", "rust", 14.0, 20.0);
         let colors: std::collections::HashSet<_> = job.sections.iter().map(|s| s.format.color).collect();
         assert!(colors.len() >= 4, "слишком мало цветов: {}", colors.len());
         assert!(html("let a = 1;", "js").unwrap().contains("hl-"));

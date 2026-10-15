@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Key, Layout, Margin, Modifiers, RichText, Sense, TextEdit, Ui, pos2, vec2,
+    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Key, Margin, Modifiers, RichText, Sense, TextEdit, Ui, pos2, vec2,
     text::{CCursor, CCursorRange},
     widgets::text_edit::TextEditState,
 };
@@ -41,9 +41,9 @@ fn name_field(ui: &mut Ui, name: &mut String, focus: bool) -> bool {
 
 /// Кнопки диалога: главная (или «опасная») и «Отмена». Возвращает (главная, отмена).
 fn buttons(ui: &mut Ui, pal: &Palette, ok: &str, danger: bool) -> (bool, bool) {
-    ui.add_space(16.0);
+    ui.add_space(14.0);
     let mut res = (false, false);
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+    forma_ui::widgets::button_row(ui, |ui| {
         res.0 = if danger {
             ui.add(egui::Button::new(RichText::new(ok).color(Color32::WHITE)).fill(pal.danger.gamma_multiply(0.85)).min_size(vec2(96.0, 30.0))).clicked()
         } else {
@@ -153,7 +153,7 @@ impl HolotypeApp {
         let mut confirm = false;
         let mut cancel = false;
         let mut pick = None;
-        let (_, outside) = modal(ctx, &pal, false, 22, |ui| match &mut m {
+        let (_, outside) = modal(ctx, &pal, false, forma_shell::chrome::MODAL_MARGIN, |ui| match &mut m {
             Modal::NewNote { folder, name } => {
                 ui.set_width(modal_width(ui.ctx(), 420.0));
                 modal_title(ui, &pal, &t!("dialog-new-note"));

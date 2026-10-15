@@ -69,6 +69,9 @@ pub enum Cmd {
     ExportSite,
     Reveal(PathBuf),
     Rescan,
+    /// Спросить подсказку у плагинов: символ `offset` текста `text` заметки `note`; ответ —
+    /// в память egui по ключу `key` (см. `render::HoverAnswer`).
+    PluginHover { key: egui::Id, text: String, offset: usize, note: PathBuf },
     DailyNote,
     SaveAll,
     Shell(ShellCmd<Space>),
@@ -124,6 +127,8 @@ pub struct HolotypeApp {
     modal_focus: bool,
     cmds: Vec<Cmd>,
     was_focused: bool,
+    /// Что плагины уже знают о хранилище: сохранения и поколение структуры.
+    plugins_seen: (u64, u64),
 }
 
 /// Что Holotype помнит об интерфейсе хранилища рядом с раскладкой.
@@ -157,6 +162,7 @@ impl HolotypeApp {
             modal_focus: false,
             cmds: Vec::new(),
             was_focused: true,
+            plugins_seen: (0, 0),
         };
         // Хранилище: из аргумента командной строки или последнее открытое.
         match vault_arg {
@@ -595,6 +601,18 @@ impl HolotypeApp {
         }
     }
 
+    /// Каждый кадр: code плагинов работает с открытым хранилищем и узнаёт, что в нём
+    /// что-то поменялось (сохранили заметку, файлы поменяли снаружи).
+    fn plugins_frame(&mut self) {
+        let Some(rt) = &mut self.shell.plugin_runtime else { return };
+        rt.set_root(self.vault.as_ref().map(|v| v.root.as_path()));
+        let seen = (self.docs.saves, self.vault.as_ref().map_or(0, |v| v.generation));
+        if seen != self.plugins_seen {
+            self.plugins_seen = seen;
+            rt.changed(&[]);
+        }
+    }
+
     fn rescan(&mut self) {
         let Some(vault) = &mut self.vault else { return };
         vault.rescan();
@@ -769,6 +787,16 @@ impl HolotypeApp {
                 }
             }
             Cmd::Rescan => self.rescan(),
+            Cmd::PluginHover { key, text, offset, note } => {
+                let note = note.to_string_lossy().replace('\\', "/");
+                let answer = self.shell.plugin_runtime.as_mut().and_then(|rt| rt.hover(&text, offset, &note)).map(|h| crate::render::HoverAnswer {
+                    text_hash: crate::render::text_hash(&text),
+                    range: h.range,
+                    markdown: h.markdown,
+                });
+                ctx.data_mut(|d| d.insert_temp(key, answer));
+                ctx.request_repaint();
+            }
             Cmd::DailyNote => self.daily_note(),
             Cmd::SaveAll => {
                 self.save_all();
@@ -900,6 +928,7 @@ impl eframe::App for HolotypeApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shell.begin_frame(&ctx);
+        self.plugins_frame();
         self.shell.app_modal = self.modal.is_some();
         self.shell.handle_keys(&ctx);
         self.background(&ctx);
