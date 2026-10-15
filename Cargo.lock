@@ -1450,7 +1450,7 @@ dependencies = [
 [[package]]
 name = "forma-actions"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#be19292545018891b165c8187feb1d0dd1714db3"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ca13a4dd8633e3bf2ddca8191caeb998b3c13e7f"
 dependencies = [
  "egui",
  "forma-settings",
@@ -1460,7 +1460,7 @@ dependencies = [
 [[package]]
 name = "forma-build"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#be19292545018891b165c8187feb1d0dd1714db3"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ca13a4dd8633e3bf2ddca8191caeb998b3c13e7f"
 dependencies = [
  "embed-resource",
 ]
@@ -1468,7 +1468,7 @@ dependencies = [
 [[package]]
 name = "forma-i18n"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#be19292545018891b165c8187feb1d0dd1714db3"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ca13a4dd8633e3bf2ddca8191caeb998b3c13e7f"
 dependencies = [
  "fluent-bundle",
  "fluent-syntax",
@@ -1481,7 +1481,7 @@ dependencies = [
 [[package]]
 name = "forma-layout"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#be19292545018891b165c8187feb1d0dd1714db3"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ca13a4dd8633e3bf2ddca8191caeb998b3c13e7f"
 dependencies = [
  "egui",
  "forma-i18n",
@@ -1492,7 +1492,7 @@ dependencies = [
 [[package]]
 name = "forma-plugins"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#be19292545018891b165c8187feb1d0dd1714db3"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ca13a4dd8633e3bf2ddca8191caeb998b3c13e7f"
 dependencies = [
  "forma-settings",
  "log",
@@ -1503,7 +1503,7 @@ dependencies = [
 [[package]]
 name = "forma-settings"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#be19292545018891b165c8187feb1d0dd1714db3"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ca13a4dd8633e3bf2ddca8191caeb998b3c13e7f"
 dependencies = [
  "dirs",
  "log",
@@ -1515,7 +1515,7 @@ dependencies = [
 [[package]]
 name = "forma-shell"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#be19292545018891b165c8187feb1d0dd1714db3"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ca13a4dd8633e3bf2ddca8191caeb998b3c13e7f"
 dependencies = [
  "eframe",
  "env_logger",
@@ -1541,7 +1541,7 @@ dependencies = [
 [[package]]
 name = "forma-ui"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#be19292545018891b165c8187feb1d0dd1714db3"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ca13a4dd8633e3bf2ddca8191caeb998b3c13e7f"
 dependencies = [
  "egui",
  "fontdb",
