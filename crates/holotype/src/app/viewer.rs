@@ -17,7 +17,7 @@ use forma_ui::widgets::{doc_tab, header_button};
 
 use super::docs::{Docs, NoteView};
 use super::note::{Keys, NoteCx, note_ui};
-use super::{Cmd, FilesState, NodeKind, SearchState, TreeNode};
+use super::{Backlinks, Cmd, FilesState, NodeKind, SearchState, TreeNode};
 use crate::fonts;
 use crate::graph::{Graph, GraphAction};
 use crate::markdown;
@@ -39,7 +39,7 @@ pub struct Viewer<'a> {
     pub current_rel: Option<PathBuf>,
     pub files: &'a mut FilesState,
     pub search: &'a mut SearchState,
-    pub backlinks: &'a mut Option<((u64, u64, PathBuf), Vec<(usize, String)>)>,
+    pub backlinks: &'a mut Option<Backlinks>,
     pub graph: &'a mut Graph,
     pub notes: &'a Notes,
     pub actions: &'a Registry,

@@ -84,11 +84,11 @@ pub fn parse(src: &str) -> Result<Graph, String> {
             if composite {
                 rest = rest[..rest.len() - 1].trim();
             }
-            let (id, title) = if rest.starts_with('"') {
+            let (id, title) = if let Some(quoted) = rest.strip_prefix('"') {
                 // state "Описание" as Id
-                let end = rest[1..].find('"').map_or(rest.len(), |k| k + 1);
-                let desc = rest[1..end].to_owned();
-                let id = rest[end..].trim_start_matches('"').trim().trim_start_matches("as").trim().to_owned();
+                let end = quoted.find('"').unwrap_or(quoted.len());
+                let desc = quoted[..end].to_owned();
+                let id = quoted[end..].trim_start_matches('"').trim().trim_start_matches("as").trim().to_owned();
                 (if id.is_empty() { desc.clone() } else { id }, Some(desc))
             } else {
                 let mut parts = rest.split_whitespace();

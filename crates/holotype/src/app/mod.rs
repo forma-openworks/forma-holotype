@@ -108,6 +108,9 @@ pub struct SearchState {
     pub focus: bool,
 }
 
+/// Обратные ссылки панели: для какой заметки посчитаны (ключ) и найденные строки.
+pub type Backlinks = ((u64, u64, PathBuf), Vec<(usize, String)>);
+
 pub struct HolotypeApp {
     pub(crate) shell: Shell<HolotypeSettings, Space>,
     /// Цвета заметок текущей темы и номер темы, из которой они посчитаны.
@@ -122,7 +125,7 @@ pub struct HolotypeApp {
     graph: Graph,
     files: FilesState,
     search: SearchState,
-    backlinks: Option<((u64, u64, PathBuf), Vec<(usize, String)>)>,
+    backlinks: Option<Backlinks>,
     modal: Option<Modal>,
     modal_focus: bool,
     cmds: Vec<Cmd>,

@@ -1125,10 +1125,10 @@ fn draw_clusters(scene: &mut Scene, g: &Graph, rects: &[Rect], m: &dyn Measure) 
             }
         }
         for (k, ch) in g.clusters.iter().enumerate() {
-            if ch.parent == Some(c) {
-                if let Some(b) = boxes[k] {
-                    r = Some(r.map_or(b, |r| r.union(b)));
-                }
+            if ch.parent == Some(c)
+                && let Some(b) = boxes[k]
+            {
+                r = Some(r.map_or(b, |r| r.union(b)));
             }
         }
         let Some(r) = r else { continue };

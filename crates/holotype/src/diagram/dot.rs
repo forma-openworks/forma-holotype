@@ -332,10 +332,10 @@ impl P {
     }
 
     fn graph_attrs(&mut self, a: &Attrs, cluster: Option<usize>) {
-        if let Some(d) = a.get("rankdir") {
-            if cluster.is_none() {
-                self.g.dir = Dir::parse(d).unwrap_or(self.g.dir);
-            }
+        if let Some(d) = a.get("rankdir")
+            && cluster.is_none()
+        {
+            self.g.dir = Dir::parse(d).unwrap_or(self.g.dir);
         }
         if let (Some(c), Some(l)) = (cluster, a.get("label")) {
             self.g.clusters[c].title = l.replace('\n', " ");

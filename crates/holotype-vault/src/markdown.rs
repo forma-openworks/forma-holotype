@@ -323,12 +323,11 @@ impl Builder {
     }
 
     fn flush_implicit(&mut self) {
-        if matches!(self.inline, Some((InlineKind::Implicit, _))) {
-            if let Some((_, items)) = self.inline.take() {
-                if !items.is_empty() {
-                    self.push_block(Block::Paragraph(items));
-                }
-            }
+        if matches!(self.inline, Some((InlineKind::Implicit, _)))
+            && let Some((_, items)) = self.inline.take()
+            && !items.is_empty()
+        {
+            self.push_block(Block::Paragraph(items));
         }
     }
 
@@ -341,13 +340,12 @@ impl Builder {
 
     fn push_inline(&mut self, item: Inline) {
         let items = self.inline_items();
-        if let Inline::Text(text, style) = &item {
-            if let Some(Inline::Text(prev, prev_style)) = items.last_mut() {
-                if prev_style == style {
-                    prev.push_str(text);
-                    return;
-                }
-            }
+        if let Inline::Text(text, style) = &item
+            && let Some(Inline::Text(prev, prev_style)) = items.last_mut()
+            && prev_style == style
+        {
+            prev.push_str(text);
+            return;
         }
         items.push(item);
     }
@@ -525,10 +523,10 @@ impl Builder {
                 self.doc.has_math = true;
                 // Формула-блок разрывает абзац: текст до неё — отдельный абзац.
                 let kind = self.inline.as_ref().map(|(k, _)| *k).unwrap_or(InlineKind::Implicit);
-                if let Some((_, items)) = self.inline.take() {
-                    if items.iter().any(|i| !matches!(i, Inline::SoftBreak | Inline::HardBreak)) {
-                        self.push_block(Block::Paragraph(items));
-                    }
+                if let Some((_, items)) = self.inline.take()
+                    && items.iter().any(|i| !matches!(i, Inline::SoftBreak | Inline::HardBreak))
+                {
+                    self.push_block(Block::Paragraph(items));
                 }
                 self.push_block(Block::Math(t.trim().to_owned()));
                 self.inline = Some((kind, Vec::new()));
@@ -659,10 +657,10 @@ impl Builder {
     fn end(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Paragraph => {
-                if let Some((_, items)) = self.inline.take() {
-                    if items.iter().any(|i| !matches!(i, Inline::SoftBreak | Inline::HardBreak)) {
-                        self.push_block(Block::Paragraph(items));
-                    }
+                if let Some((_, items)) = self.inline.take()
+                    && items.iter().any(|i| !matches!(i, Inline::SoftBreak | Inline::HardBreak))
+                {
+                    self.push_block(Block::Paragraph(items));
                 }
             }
             TagEnd::Heading(_) => {
@@ -897,8 +895,7 @@ fn to_callout(mut blocks: Vec<Block>) -> Result<Block, Vec<Block>> {
 fn split_marks(s: &str) -> Vec<(&str, bool, Option<[u8; 3]>)> {
     let mut out = Vec::new();
     let mut rest = s;
-    loop {
-        let Some(open) = rest.find("==") else { break };
+    while let Some(open) = rest.find("==") {
         let after = &rest[open + 2..];
         if after.starts_with(|c: char| c.is_whitespace() || c == '=') || after.is_empty() {
             out.push((&rest[..open + 2], false, None));
@@ -917,13 +914,12 @@ fn split_marks(s: &str) -> Vec<(&str, bool, Option<[u8; 3]>)> {
         }
         let mut tail = &after[close_rel + 2..];
         let mut tint = None;
-        if let Some(attr) = tail.strip_prefix('{') {
-            if let Some(end) = attr.find('}') {
-                if let Some((t, _)) = parse_attrs(&attr[..end]) {
-                    tint = t;
-                    tail = &attr[end + 1..];
-                }
-            }
+        if let Some(attr) = tail.strip_prefix('{')
+            && let Some(end) = attr.find('}')
+            && let Some((t, _)) = parse_attrs(&attr[..end])
+        {
+            tint = t;
+            tail = &attr[end + 1..];
         }
         out.push((inner, true, tint));
         rest = tail;
@@ -1016,10 +1012,8 @@ fn parse_attrs(s: &str) -> Option<(Option<[u8; 3]>, bool)> {
         let token = token.trim_start_matches('.');
         if token.eq_ignore_ascii_case("badge") || token == "бейдж" {
             badge = true;
-        } else if let Some(c) = named_color(token) {
-            tint = Some(c);
         } else {
-            return None;
+            tint = Some(named_color(token)?);
         }
         any = true;
     }
@@ -1110,26 +1104,26 @@ fn take_author(block: &mut Block) -> Option<Vec<Inline>> {
 
 /// Добавляет блок, объединяя идущие подряд блоки кода с вкладками в один.
 fn push_merging_code(blocks: &mut Vec<Block>, block: Block) {
-    if let Block::Code(cb) = &block {
-        if cb.tab.is_some() {
-            match blocks.last_mut() {
-                Some(Block::CodeGroup(group)) => {
+    if let Block::Code(cb) = &block
+        && cb.tab.is_some()
+    {
+        match blocks.last_mut() {
+            Some(Block::CodeGroup(group)) => {
+                let Block::Code(cb) = block else { unreachable!() };
+                group.push(cb);
+                return;
+            }
+            Some(last @ Block::Code(_)) => {
+                if let Block::Code(prev) = last
+                    && prev.tab.is_some()
+                {
+                    let prev = std::mem::take(prev);
                     let Block::Code(cb) = block else { unreachable!() };
-                    group.push(cb);
+                    *last = Block::CodeGroup(vec![prev, cb]);
                     return;
                 }
-                Some(last @ Block::Code(_)) => {
-                    if let Block::Code(prev) = last {
-                        if prev.tab.is_some() {
-                            let prev = std::mem::take(prev);
-                            let Block::Code(cb) = block else { unreachable!() };
-                            *last = Block::CodeGroup(vec![prev, cb]);
-                            return;
-                        }
-                    }
-                }
-                _ => {}
             }
+            _ => {}
         }
     }
     blocks.push(block);
@@ -1140,20 +1134,19 @@ fn split_tags_urls(s: &str) -> Vec<Piece<'_>> {
     let mut out = Vec::new();
     let mut last = 0;
     let mut prev: Option<char> = None;
-    let mut iter = s.char_indices().peekable();
-    while let Some((i, ch)) = iter.next() {
-        if i >= last && ch == '{' && s[i..].starts_with("{{") {
-            if let Some(end) = s[i + 2..].find("}}") {
-                let inner = &s[i + 2..i + 2 + end];
-                if !inner.trim().is_empty() && !inner.contains('\n') && inner.len() <= 64 {
-                    if i > last {
-                        out.push(Piece::Text(&s[last..i]));
-                    }
-                    out.push(Piece::Keys(inner));
-                    last = i + 4 + end;
-                    prev = Some('}');
-                    continue;
+    for (i, ch) in s.char_indices() {
+        if i >= last && ch == '{' && s[i..].starts_with("{{")
+            && let Some(end) = s[i + 2..].find("}}")
+        {
+            let inner = &s[i + 2..i + 2 + end];
+            if !inner.trim().is_empty() && !inner.contains('\n') && inner.len() <= 64 {
+                if i > last {
+                    out.push(Piece::Text(&s[last..i]));
                 }
+                out.push(Piece::Keys(inner));
+                last = i + 4 + end;
+                prev = Some('}');
+                continue;
             }
         }
         let boundary = prev.is_none_or(|p| p.is_whitespace() || "([{,;\"'«".contains(p));

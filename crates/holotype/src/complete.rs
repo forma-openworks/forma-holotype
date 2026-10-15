@@ -166,19 +166,19 @@ pub fn detect(text: &str, cursor: usize, force: bool) -> Option<Context> {
     // > [!тип плашки
     if t.starts_with('>') {
         let unq = t.trim_start_matches(|c: char| c == '>' || c.is_whitespace());
-        if let Some(q) = unq.strip_prefix("[!") {
-            if q.chars().all(char::is_alphanumeric) {
-                let len = rest.find(|c: char| !c.is_alphanumeric()).unwrap_or(rest.len());
-                let closed = rest[len..].starts_with(']');
-                return Some(Context {
-                    kind: Kind::Callout,
-                    start: cursor - q.len(),
-                    end: cursor + len,
-                    query: q.to_owned(),
-                    close_len: usize::from(closed),
-                    needs_close: !closed,
-                });
-            }
+        if let Some(q) = unq.strip_prefix("[!")
+            && q.chars().all(char::is_alphanumeric)
+        {
+            let len = rest.find(|c: char| !c.is_alphanumeric()).unwrap_or(rest.len());
+            let closed = rest[len..].starts_with(']');
+            return Some(Context {
+                kind: Kind::Callout,
+                start: cursor - q.len(),
+                end: cursor + len,
+                query: q.to_owned(),
+                close_len: usize::from(closed),
+                needs_close: !closed,
+            });
         }
     }
 
@@ -448,7 +448,7 @@ pub fn items(ctx: &Context, text: &str, vault: &Vault, current: &Path) -> Vec<It
         }
     }
     // Порядок при равных очках сохраняется: разделы идут как в заметке.
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|s| std::cmp::Reverse(s.0));
     scored.truncate(MAX_ITEMS);
     scored.into_iter().map(|(_, i)| i).collect()
 }

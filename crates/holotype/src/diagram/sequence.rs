@@ -261,7 +261,7 @@ pub fn layout(src: &str, m: &dyn Measure) -> Result<Scene, String> {
         y += LINE + 12.0;
     }
     let head_top = y;
-    let head_h = p.parts.iter().map(|pt| part_height(pt)).fold(BOX_H, f32::max);
+    let head_h = p.parts.iter().map(part_height).fold(BOX_H, f32::max);
     y += head_h + 18.0;
 
     let mut frames: Vec<Frame> = Vec::new();
@@ -327,10 +327,10 @@ pub fn layout(src: &str, m: &dyn Measure) -> Result<Scene, String> {
                         let s = number.to_string();
                         body.text(c, s.clone(), f, Anchor::Middle, Role::Bg, m.width(&s, f));
                     }
-                    if *act == Some(false) {
-                        if let Some(start) = active[a].pop() {
-                            bars.push((a, start, y, active[a].len()));
-                        }
+                    if *act == Some(false)
+                        && let Some(start) = active[a].pop()
+                    {
+                        bars.push((a, start, y, active[a].len()));
                     }
                     last_arrow = y;
                     y += 16.0;
@@ -401,9 +401,9 @@ pub fn layout(src: &str, m: &dyn Measure) -> Result<Scene, String> {
 
     // Порядок слоёв: рамки, линии жизни, активации, сообщения, подписи рамок, участники.
     scene.prims.extend(frames_back);
-    for i in 0..n {
+    for &xi in &x {
         scene.push(Prim::Poly {
-            pts: vec![pos2(x[i], head_top + head_h), pos2(x[i], bottom)],
+            pts: vec![pos2(xi, head_top + head_h), pos2(xi, bottom)],
             closed: false,
             fill: Paint::None,
             stroke: Role::ClusterStroke.into(),

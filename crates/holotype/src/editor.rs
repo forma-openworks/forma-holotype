@@ -124,9 +124,9 @@ fn build(text: &str, st: &EditorStyle) -> LayoutJob {
             let start = content.len() - trimmed.len();
             fill(&mut flags, 0, start + fence.len(), FAINT);
             fill(&mut flags, start + fence.len(), content.len(), ACCENT);
-        } else if trimmed.starts_with("$$") {
+        } else if let Some(rest) = trimmed.strip_prefix("$$") {
             fill(&mut flags, 0, content.len(), MATH);
-            let rest = trimmed[2..].trim_end();
+            let rest = rest.trim_end();
             if !(rest.ends_with("$$") && rest.len() >= 2) {
                 in_math = !in_math;
             }
@@ -195,16 +195,16 @@ fn mark_line(content: &str, flags: &mut [u16]) -> LineKind {
         }
     }
     // Заголовок плашки `[!note]`
-    if quoted && content[pos..].starts_with("[!") {
-        if let Some(end) = content[pos..].find(']') {
-            let mut e = pos + end + 1;
-            if e < bytes.len() && (bytes[e] == b'-' || bytes[e] == b'+') {
-                e += 1;
-            }
-            fill(flags, pos, e, ACCENT | BOLD);
-            fill(flags, e, content.len(), BOLD);
-            pos = e;
+    if quoted && content[pos..].starts_with("[!")
+        && let Some(end) = content[pos..].find(']')
+    {
+        let mut e = pos + end + 1;
+        if e < bytes.len() && (bytes[e] == b'-' || bytes[e] == b'+') {
+            e += 1;
         }
+        fill(flags, pos, e, ACCENT | BOLD);
+        fill(flags, e, content.len(), BOLD);
+        pos = e;
     }
 
     // Маркер списка и чекбокс
@@ -334,19 +334,19 @@ fn inline_marks(line: &str, flags: &mut [u16], from: usize) {
     // $формула$
     let mut i = from;
     while i < n {
-        if bytes[i] == b'$' && !protected[i] && i + 1 < n && bytes[i + 1] != b'$' && bytes[i + 1] != b' ' {
-            if let Some(rel) = line[i + 1..].find('$') {
-                let j = i + 1 + rel;
-                if bytes[j - 1] != b' ' && !protected[j] {
-                    fill(flags, i, i + 1, FAINT | MATH);
-                    fill(flags, i + 1, j, MATH);
-                    fill(flags, j, j + 1, FAINT | MATH);
-                    for p in &mut protected[i..=j] {
-                        *p = true;
-                    }
-                    i = j + 1;
-                    continue;
+        if bytes[i] == b'$' && !protected[i] && i + 1 < n && bytes[i + 1] != b'$' && bytes[i + 1] != b' '
+            && let Some(rel) = line[i + 1..].find('$')
+        {
+            let j = i + 1 + rel;
+            if bytes[j - 1] != b' ' && !protected[j] {
+                fill(flags, i, i + 1, FAINT | MATH);
+                fill(flags, i + 1, j, MATH);
+                fill(flags, j, j + 1, FAINT | MATH);
+                for p in &mut protected[i..=j] {
+                    *p = true;
                 }
+                i = j + 1;
+                continue;
             }
         }
         i += 1;
@@ -379,24 +379,24 @@ fn inline_marks(line: &str, flags: &mut [u16], from: usize) {
     // [текст](адрес) и ![подпись](адрес)
     let mut i = from;
     while i < n {
-        if bytes[i] == b'[' && !protected[i] {
-            if let Some(close_rel) = line[i + 1..].find("](") {
-                let close = i + 1 + close_rel;
-                if let Some(paren_rel) = line[close + 2..].find(')') {
-                    let paren = close + 2 + paren_rel;
-                    if !protected[close] {
-                        let start = if i > 0 && bytes[i - 1] == b'!' { i - 1 } else { i };
-                        fill(flags, start, i + 1, FAINT);
-                        fill(flags, i + 1, close, LINK);
-                        fill(flags, close, paren + 1, FAINT);
-                        for p in &mut protected[close..=paren] {
-                            *p = true;
-                        }
-                        protected[start] = true;
-                        protected[i] = true;
-                        i = paren + 1;
-                        continue;
+        if bytes[i] == b'[' && !protected[i]
+            && let Some(close_rel) = line[i + 1..].find("](")
+        {
+            let close = i + 1 + close_rel;
+            if let Some(paren_rel) = line[close + 2..].find(')') {
+                let paren = close + 2 + paren_rel;
+                if !protected[close] {
+                    let start = if i > 0 && bytes[i - 1] == b'!' { i - 1 } else { i };
+                    fill(flags, start, i + 1, FAINT);
+                    fill(flags, i + 1, close, LINK);
+                    fill(flags, close, paren + 1, FAINT);
+                    for p in &mut protected[close..=paren] {
+                        *p = true;
                     }
+                    protected[start] = true;
+                    protected[i] = true;
+                    i = paren + 1;
+                    continue;
                 }
             }
         }
@@ -420,12 +420,12 @@ fn inline_marks(line: &str, flags: &mut [u16], from: usize) {
         if !(after_code || after_mark) {
             continue;
         }
-        if let Some(end_rel) = line[i..].find('}') {
-            if end_rel <= 48 {
-                fill(flags, i, i + end_rel + 1, FAINT);
-                for p in &mut protected[i..=i + end_rel] {
-                    *p = true;
-                }
+        if let Some(end_rel) = line[i..].find('}')
+            && end_rel <= 48
+        {
+            fill(flags, i, i + end_rel + 1, FAINT);
+            for p in &mut protected[i..=i + end_rel] {
+                *p = true;
             }
         }
     }

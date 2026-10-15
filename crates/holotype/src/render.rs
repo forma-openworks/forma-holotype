@@ -435,16 +435,16 @@ impl<'a> Renderer<'a> {
             }
             None => {}
         }
-        if let Some(l) = link {
-            if kind != Some(DecoKind::Tag) {
-                color = self.link_color(l);
-                let is_hovered = hovered == st.link;
-                if l.kind == LinkKind::Url && !is_hovered {
-                    underline = Stroke::new(1.0, color.gamma_multiply(0.4));
-                }
-                if is_hovered {
-                    underline = Stroke::new(1.0, color);
-                }
+        if let Some(l) = link
+            && kind != Some(DecoKind::Tag)
+        {
+            color = self.link_color(l);
+            let is_hovered = hovered == st.link;
+            if l.kind == LinkKind::Url && !is_hovered {
+                underline = Stroke::new(1.0, color.gamma_multiply(0.4));
+            }
+            if is_hovered {
+                underline = Stroke::new(1.0, color);
             }
         }
         if st.footnote {
@@ -555,11 +555,11 @@ impl<'a> Renderer<'a> {
             }
             let modifiers = ui.input(|i| i.modifiers);
             let clicked = resp.clicked() || resp.middle_clicked();
-            if clicked {
-                if let Some(li) = resp.interact_pointer_pos().and_then(|p| link_at(&galley, p - pos, &links)) {
-                    let new_tab = modifiers.command || resp.middle_clicked();
-                    self.link_action(ui, li, new_tab);
-                }
+            if clicked
+                && let Some(li) = resp.interact_pointer_pos().and_then(|p| link_at(&galley, p - pos, &links))
+            {
+                let new_tab = modifiers.command || resp.middle_clicked();
+                self.link_action(ui, li, new_tab);
             }
         }
 
@@ -615,15 +615,15 @@ impl<'a> Renderer<'a> {
             });
         }
         // Щелчок по тексту задачи переключает её галочку (если щёлкнули не по ссылке).
-        if let Some(range) = self.task.clone() {
-            if new_hover.is_none() {
-                if resp.hovered() {
-                    self.task_hover = true;
-                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                }
-                if resp.clicked() {
-                    self.actions.push(Action::ToggleTask(range));
-                }
+        if let Some(range) = self.task.clone()
+            && new_hover.is_none()
+        {
+            if resp.hovered() {
+                self.task_hover = true;
+                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            }
+            if resp.clicked() {
+                self.actions.push(Action::ToggleTask(range));
             }
         }
         if let Some(li) = new_hover {
@@ -1428,10 +1428,10 @@ impl<'a> Renderer<'a> {
                 };
                 let mut child = ui.new_child(UiBuilder::new().id_salt((id, ri, j)).max_rect(cell_rect).layout(layout));
                 child.spacing_mut().item_spacing = Vec2::ZERO;
-                if let Some(cell) = cells.get(j) {
-                    if !cell.is_empty() {
-                        self.inlines(&mut child, cell, fmt);
-                    }
+                if let Some(cell) = cells.get(j)
+                    && !cell.is_empty()
+                {
+                    self.inlines(&mut child, cell, fmt);
                 }
                 row_h = row_h.max(child.min_rect().height() + shift);
                 x += w;
@@ -1563,11 +1563,11 @@ impl<'a> Renderer<'a> {
         }
         // <img src="…"> показываем картинкой.
         // ASCII-регистр не меняет длину в байтах: позиция годится для среза исходной строки.
-        if let Some(pos) = trimmed.to_ascii_lowercase().find("<img") {
-            if let Some(src) = attr_value(&trimmed[pos..], "src") {
-                self.image(ui, &src, "", attr_value(&trimmed[pos..], "width").and_then(|w| w.parse().ok()), false);
-                return;
-            }
+        if let Some(pos) = trimmed.to_ascii_lowercase().find("<img")
+            && let Some(src) = attr_value(&trimmed[pos..], "src")
+        {
+            self.image(ui, &src, "", attr_value(&trimmed[pos..], "width").and_then(|w| w.parse().ok()), false);
+            return;
         }
         let text = strip_tags(trimmed);
         if text.trim().is_empty() {
@@ -1625,10 +1625,10 @@ type DiagramResult = Arc<Result<(diagram::Kind, diagram::Scene), diagram::Error>
 /// и пересчитываем её, только когда меняется текст.
 fn diagram_scene(ctx: &egui::Context, slot: egui::Id, cb: &CodeBlock) -> DiagramResult {
     let hash = egui::Id::new((&cb.lang, &cb.code));
-    if let Some((h, r)) = ctx.data(|d| d.get_temp::<(egui::Id, DiagramResult)>(slot)) {
-        if h == hash {
-            return r;
-        }
+    if let Some((h, r)) = ctx.data(|d| d.get_temp::<(egui::Id, DiagramResult)>(slot))
+        && h == hash
+    {
+        return r;
     }
     let r: DiagramResult = Arc::new(diagram::render(&cb.lang, &cb.code, &diagram::EguiMeasure(ctx)));
     ctx.data_mut(|d| d.insert_temp(slot, (hash, r.clone())));

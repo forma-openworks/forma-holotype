@@ -53,14 +53,13 @@ pub fn at_cursor(text: &str, cursor: usize) -> Option<Found> {
         return None;
     }
 
-    if after.trim().is_empty() {
-        if let Some(nodes) = parse(token) {
-            if !is_trivial(&nodes) {
-                let quiet = is_quiet(&nodes);
-                let expansion = build(&nodes, &line[..prefix_len]);
-                return Some(Found { range: ls + prefix_len..cursor, expansion, whole_line: true, quiet });
-            }
-        }
+    if after.trim().is_empty()
+        && let Some(nodes) = parse(token)
+        && !is_trivial(&nodes)
+    {
+        let quiet = is_quiet(&nodes);
+        let expansion = build(&nodes, &line[..prefix_len]);
+        return Some(Found { range: ls + prefix_len..cursor, expansion, whole_line: true, quiet });
     }
 
     // Одно слово посреди текста: только строчные сокращения.
@@ -351,10 +350,10 @@ fn resolve(name: &str, has_text: bool, rows: Option<usize>) -> Option<Atom> {
     if let Some(d) = n.strip_suffix('.') {
         return d.parse().ok().map(Atom::Ordered);
     }
-    if let Some(l) = n.strip_prefix('h') {
-        if let Ok(level @ 1..=6) = l.parse::<u8>() {
-            return Some(Atom::Heading(level));
-        }
+    if let Some(l) = n.strip_prefix('h')
+        && let Ok(level @ 1..=6) = l.parse::<u8>()
+    {
+        return Some(Atom::Heading(level));
     }
     if let Some(count) = n.strip_prefix("lorem") {
         return if count.is_empty() { Some(Atom::Lorem(20)) } else { count.parse().ok().filter(|c| (1..=500).contains(c)).map(Atom::Lorem) };

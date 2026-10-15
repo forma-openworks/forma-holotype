@@ -447,7 +447,7 @@ impl Parser {
     fn parse_top(&mut self) -> Vec<Node> {
         let has_rows = self.toks.iter().any(|t| matches!(t, Tok::NewRow | Tok::Amp));
         if has_rows {
-            let has_amp = self.toks.iter().any(|t| *t == Tok::Amp);
+            let has_amp = self.toks.contains(&Tok::Amp);
             let rows = self.parse_cells(MFont::Italic);
             let env = if has_amp { Env::Aligned } else { Env::Gathered };
             return vec![Node::Matrix { rows, env }];
@@ -487,8 +487,7 @@ impl Parser {
 
     fn parse_row(&mut self, stop: Stop, font: MFont) -> Vec<Node> {
         let mut out: Vec<Node> = Vec::new();
-        loop {
-            let Some(tok) = self.peek().cloned() else { break };
+        while let Some(tok) = self.peek().cloned() {
             match (&tok, stop) {
                 (Tok::Close, Stop::Close) => break,
                 (Tok::Close, _) => {
@@ -1046,12 +1045,11 @@ fn parse_length(s: &str) -> f32 {
 
 fn parse_color(name: &str) -> Color32 {
     let n = name.trim();
-    if let Some(hex) = n.strip_prefix('#') {
-        if hex.len() == 6 {
-            if let Ok(v) = u32::from_str_radix(hex, 16) {
-                return Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
-            }
-        }
+    if let Some(hex) = n.strip_prefix('#')
+        && hex.len() == 6
+        && let Ok(v) = u32::from_str_radix(hex, 16)
+    {
+        return Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     }
     match n.to_lowercase().as_str() {
         "red" => Color32::from_rgb(239, 68, 68),

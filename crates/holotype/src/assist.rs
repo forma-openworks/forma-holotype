@@ -110,12 +110,10 @@ impl Assist {
                 self.jump(state, shift);
                 return false;
             }
-            if !shift {
-                if let Some(found) = emmet::at_cursor(text, cursor) {
-                    consume();
-                    self.expand(text, state, found);
-                    return true;
-                }
+            if !shift && let Some(found) = emmet::at_cursor(text, cursor) {
+                consume();
+                self.expand(text, state, found);
+                return true;
             }
             if let Some((sel, changed)) = table_cell(text, cursor, shift) {
                 consume();
@@ -293,13 +291,12 @@ impl Assist {
                 hint_ui(ui.ctx(), hint, anchor, id, pal);
             }
         }
-        if let Some(k) = clicked {
-            if let Some(mut state) = TextEditState::load(ui.ctx(), id) {
-                if self.accept(text, &mut state, k) {
-                    state.store(ui.ctx(), id);
-                    return true;
-                }
-            }
+        if let Some(k) = clicked
+            && let Some(mut state) = TextEditState::load(ui.ctx(), id)
+            && self.accept(text, &mut state, k)
+        {
+            state.store(ui.ctx(), id);
+            return true;
         }
         false
     }
@@ -526,10 +523,10 @@ fn table_cell(text: &mut String, cursor: usize, back: bool) -> Option<(Range<usi
     }
     let row = cells(text, ls, le);
     if back {
-        if let Some(i) = row.iter().rposition(|c| c.start <= cursor) {
-            if i > 0 {
-                return Some((cell_target(text, &row[i - 1]), false));
-            }
+        if let Some(i) = row.iter().rposition(|c| c.start <= cursor)
+            && i > 0
+        {
+            return Some((cell_target(text, &row[i - 1]), false));
         }
         let mut s = ls;
         while s > 0 {
@@ -572,13 +569,13 @@ fn table_cell(text: &mut String, cursor: usize, back: bool) -> Option<(Range<usi
 
 /// Байтовые диапазоны ячеек строки — содержимое между вертикальными чертами.
 fn cells(text: &str, ls: usize, le: usize) -> Vec<Range<usize>> {
-    let b = text[ls..le].as_bytes();
+    let b = &text.as_bytes()[ls..le];
     let pipes: Vec<usize> = (0..b.len()).filter(|&i| b[i] == b'|' && (i == 0 || b[i - 1] != b'\\')).map(|i| ls + i).collect();
     let mut out: Vec<Range<usize>> = pipes.windows(2).map(|w| w[0] + 1..w[1]).collect();
-    if let Some(&last) = pipes.last() {
-        if !text[last + 1..le].trim().is_empty() {
-            out.push(last + 1..le);
-        }
+    if let Some(&last) = pipes.last()
+        && !text[last + 1..le].trim().is_empty()
+    {
+        out.push(last + 1..le);
     }
     out
 }

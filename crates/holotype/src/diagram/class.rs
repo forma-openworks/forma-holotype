@@ -4,8 +4,11 @@ use super::graph::{ClassBox, Dir, Graph, Head, Line, Shape};
 use super::text::label_lines;
 use forma_i18n::t;
 
-/// Операторы связей: (запись, наконечник слева, наконечник справа, пунктир).
-const RELATIONS: [(&str, Head, Head, bool); 16] = [
+/// Оператор связи: (запись, наконечник слева, наконечник справа, пунктир).
+type Relation = (&'static str, Head, Head, bool);
+
+/// Операторы связей.
+const RELATIONS: [Relation; 16] = [
     ("<|--", Head::Triangle, Head::None, false),
     ("--|>", Head::None, Head::Triangle, false),
     ("<|..", Head::Triangle, Head::None, true),
@@ -157,7 +160,7 @@ fn relation(g: &mut Graph, line: &str) -> bool {
         _ => (line, None),
     };
     // Ищем самый длинный оператор, окружённый пробелами или стоящий между именами.
-    let mut best: Option<(usize, &(&str, Head, Head, bool))> = None;
+    let mut best: Option<(usize, &Relation)> = None;
     for rel in &RELATIONS {
         let mut from = 0;
         while let Some(k) = main[from..].find(rel.0) {
@@ -204,15 +207,15 @@ fn relation(g: &mut Graph, line: &str) -> bool {
 fn split_card(s: &str, card_after: bool) -> (&str, Option<String>) {
     let s = s.trim();
     if card_after {
-        if s.ends_with('"') {
-            if let Some(k) = s[..s.len() - 1].rfind('"') {
-                return (s[..k].trim(), Some(s[k + 1..s.len() - 1].to_owned()));
-            }
+        if s.ends_with('"')
+            && let Some(k) = s[..s.len() - 1].rfind('"')
+        {
+            return (s[..k].trim(), Some(s[k + 1..s.len() - 1].to_owned()));
         }
-    } else if let Some(rest) = s.strip_prefix('"') {
-        if let Some(k) = rest.find('"') {
-            return (rest[k + 1..].trim(), Some(rest[..k].to_owned()));
-        }
+    } else if let Some(rest) = s.strip_prefix('"')
+        && let Some(k) = rest.find('"')
+    {
+        return (rest[k + 1..].trim(), Some(rest[..k].to_owned()));
     }
     (s, None)
 }

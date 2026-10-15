@@ -264,14 +264,14 @@ impl Graph {
             ui.ctx().request_repaint();
         }
         // Пока пользователь не двигал вид, плавно вписываем граф в окно.
-        if self.auto_fit {
-            if let Some((zoom, pan)) = self.fit_target(ui.available_rect_before_wrap()) {
-                let t = 0.18;
-                self.zoom += (zoom - self.zoom) * t;
-                self.pan += (pan - self.pan) * t;
-                if (zoom - self.zoom).abs() > 0.002 || (pan - self.pan).length() > 0.5 {
-                    ui.ctx().request_repaint();
-                }
+        if self.auto_fit
+            && let Some((zoom, pan)) = self.fit_target(ui.available_rect_before_wrap())
+        {
+            let t = 0.18;
+            self.zoom += (zoom - self.zoom) * t;
+            self.pan += (pan - self.pan) * t;
+            if (zoom - self.zoom).abs() > 0.002 || (pan - self.pan).length() > 0.5 {
+                ui.ctx().request_repaint();
             }
         }
 
@@ -378,10 +378,10 @@ impl Graph {
                 self.pin(i);
             }
         }
-        if resp.clicked() {
-            if let Some(i) = hovered {
-                action = Some(self.open_action(i));
-            }
+        if resp.clicked()
+            && let Some(i) = hovered
+        {
+            action = Some(self.open_action(i));
         }
         // Правый щелчок: меню узла и сброс расположения.
         if resp.secondary_clicked() {
