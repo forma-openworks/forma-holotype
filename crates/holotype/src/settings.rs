@@ -10,13 +10,13 @@
 
 use std::path::{Path, PathBuf};
 
-use eframe::egui::{self, Ui};
+use eframe::egui::Ui;
 use forma_i18n::t;
 use forma_settings::export::{Archive, Status};
 use forma_settings::{Component, Store, decode};
-use forma_shell::AppSettings;
+use forma_shell::{AppPage, AppSettings, PlatformSettings};
 use forma_ui::appearance::Appearance;
-use forma_ui::settings_window::{self as sw, PageInfo};
+use forma_ui::settings_window::{self as sw, PageInfo, order};
 use forma_ui::theme::Palette;
 use serde::{Deserialize, Serialize};
 
@@ -101,19 +101,15 @@ impl AppSettings for HolotypeSettings {
     }
 
     fn pages(&self) -> Vec<PageInfo> {
-        vec![PageInfo {
-            id: NOTES_PAGE.into(),
-            section: crate::SPEC.app.title.into(),
-            title: t!("settings-page-notes"),
-            keywords: vec![t!("notes-accent"), t!("notes-text-size"), t!("notes-readable-width"), t!("notes-mono-editor"), t!("notes-default-mode")],
-        }]
+        let keywords = vec![t!("notes-accent"), t!("notes-text-size"), t!("notes-readable-width"), t!("notes-mono-editor"), t!("notes-default-mode")];
+        vec![PageInfo::new(NOTES_PAGE, t!("settings-page-notes")).icon("file-text").order(order::EDITOR).keywords(keywords)]
     }
 
-    fn page_modified(&self, live: &Self, page: &str) -> bool {
+    fn page_modified(&self, live: &Self, page: &str, _platform: &PlatformSettings, _live_platform: &PlatformSettings) -> bool {
         page == NOTES_PAGE && self.notes != live.notes
     }
 
-    fn page_ui(&mut self, ui: &mut Ui, pal: &Palette, page: &str, search: &str) {
+    fn page_ui(&mut self, ui: &mut Ui, pal: &Palette, page: &str, search: &str, _cx: &mut AppPage) {
         if page == NOTES_PAGE {
             notes_page(ui, pal, search, &mut self.notes);
         }
@@ -149,43 +145,45 @@ impl AppSettings for HolotypeSettings {
 /// Страница «Заметки».
 fn notes_page(ui: &mut Ui, pal: &Palette, search: &str, n: &mut Notes) {
     let def = Notes::default();
-    sw::group(ui, pal, &t!("notes-group-text"));
-    if sw::row(ui, pal, search, &t!("notes-text-size"), n.text_size != def.text_size, |ui| {
-        ui.add(egui::Slider::new(&mut n.text_size, TEXT_SIZE_RANGE).step_by(0.5).suffix(" px"));
-    }) {
-        n.text_size = def.text_size;
-    }
-    let modified = n.readable_width != def.readable_width;
-    if sw::check(ui, pal, search, &t!("notes-readable-width"), &mut n.readable_width, modified) {
-        n.readable_width = def.readable_width;
-    }
-    let modified = n.mono_editor != def.mono_editor;
-    if sw::check(ui, pal, search, &t!("notes-mono-editor"), &mut n.mono_editor, modified) {
-        n.mono_editor = def.mono_editor;
-    }
+    sw::section(ui, pal, &t!("notes-group-text"), |ui| {
+        if sw::row(ui, pal, search, &t!("notes-text-size"), n.text_size != def.text_size, |ui| {
+            forma_ui::widgets::number_field(ui, pal, sw::id(NOTES_PAGE, "text-size"), &mut n.text_size, TEXT_SIZE_RANGE, 0.5, " px", 150.0);
+        }) {
+            n.text_size = def.text_size;
+        }
+        let modified = n.readable_width != def.readable_width;
+        if sw::check(ui, pal, search, &t!("notes-readable-width"), &mut n.readable_width, modified) {
+            n.readable_width = def.readable_width;
+        }
+        let modified = n.mono_editor != def.mono_editor;
+        if sw::check(ui, pal, search, &t!("notes-mono-editor"), &mut n.mono_editor, modified) {
+            n.mono_editor = def.mono_editor;
+        }
+    });
 
-    sw::group(ui, pal, &t!("notes-group-look"));
-    if sw::row(ui, pal, search, &t!("notes-default-mode"), n.default_mode != def.default_mode, |ui| {
-        let modes = [ViewMode::Preview, ViewMode::Split, ViewMode::Edit];
-        let labels: Vec<String> = modes.iter().map(|m| m.title()).collect();
-        let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let current = modes.iter().position(|m| *m == n.default_mode).unwrap_or(0);
-        if let Some(i) = forma_ui::widgets::segmented(ui, pal, sw::id(NOTES_PAGE, "mode"), &labels, current, false) {
-            n.default_mode = modes[i];
+    sw::section(ui, pal, &t!("notes-group-look"), |ui| {
+        if sw::row(ui, pal, search, &t!("notes-default-mode"), n.default_mode != def.default_mode, |ui| {
+            let modes = [ViewMode::Preview, ViewMode::Split, ViewMode::Edit];
+            let labels: Vec<String> = modes.iter().map(|m| m.title()).collect();
+            let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+            let current = modes.iter().position(|m| *m == n.default_mode).unwrap_or(0);
+            if let Some(i) = forma_ui::widgets::segmented(ui, pal, sw::id(NOTES_PAGE, "mode"), &labels, current, false) {
+                n.default_mode = modes[i];
+            }
+        }) {
+            n.default_mode = def.default_mode;
         }
-    }) {
-        n.default_mode = def.default_mode;
-    }
-    if sw::row(ui, pal, search, &t!("notes-accent"), n.accent != def.accent, |ui| {
-        let mut options: Vec<(Option<Accent>, String)> = vec![(None, t!("notes-accent-theme"))];
-        options.extend(Accent::ALL.iter().map(|a| (Some(*a), format!("●  {}", a.label()))));
-        if let Some(a) = forma_ui::widgets::dropdown(ui, pal, sw::id(NOTES_PAGE, "accent"), 220.0, &n.accent, &options) {
-            n.accent = a;
+        if sw::row(ui, pal, search, &t!("notes-accent"), n.accent != def.accent, |ui| {
+            let mut options: Vec<(Option<Accent>, String)> = vec![(None, t!("notes-accent-theme"))];
+            options.extend(Accent::ALL.iter().map(|a| (Some(*a), format!("●  {}", a.label()))));
+            if let Some(a) = forma_ui::widgets::dropdown(ui, pal, sw::id(NOTES_PAGE, "accent"), 220.0, &n.accent, &options) {
+                n.accent = a;
+            }
+        }) {
+            n.accent = def.accent;
         }
-    }) {
-        n.accent = def.accent;
-    }
-    sw::hint(ui, pal, &t!("notes-accent-hint"));
+        sw::hint(ui, pal, &t!("notes-accent-hint"));
+    });
 }
 
 /// `config.json` первых версий.
