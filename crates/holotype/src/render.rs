@@ -880,7 +880,8 @@ impl<'a> Renderer<'a> {
                             }
                             let cb = &group[sel];
                             let kind = term::kind(&cb.lang);
-                            let title_font = FontId::monospace(s * 0.8);
+                            // Название блока плагина — обычным шрифтом (это не имя файла и не язык).
+                            let title_font = if plugin_title.is_some() && cb.title.is_none() { FontId::proportional(s * 0.8) } else { FontId::monospace(s * 0.8) };
                             match kind {
                                 Kind::Code => {
                                     let kind_title = diagram_kind.map(|k| k.title().to_owned()).or_else(|| plugin_title.clone());

@@ -169,6 +169,10 @@ impl forma_ui::elements::Hooks for Hooks<'_> {
             });
     }
 
+    fn image_uri(&self, path: &str) -> Option<String> {
+        self.vault.resolve_attachment(path, self.note).map(|f| crate::app::file_url(&f))
+    }
+
     fn image(&mut self, ui: &mut Ui, _pal: &forma_ui::theme::Palette, path: &str, width: Option<f32>, alt: &str) {
         match self.vault.resolve_attachment(path, self.note) {
             Some(file) => {
