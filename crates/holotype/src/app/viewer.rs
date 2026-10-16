@@ -418,6 +418,9 @@ impl Viewer<'_> {
         let note = self.current_rel.clone().unwrap_or_default();
         let fpal = self.fpal;
         let size = self.notes.text_size * 0.9;
+        if self.plugins.needs_render(&key) {
+            self.cmds.push(Cmd::RenderPanel(key.clone()));
+        }
         ScrollArea::vertical().id_salt(("plugin-panel", pane.id)).auto_shrink([false, false]).show(ui, |ui| {
             Frame::new().inner_margin(Margin::same(12)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -442,7 +445,6 @@ impl Viewer<'_> {
                         ui.add(egui::Label::new(RichText::new(t!("plugin-panel-failed", error = error.clone())).size(13.0).color(fpal.warning)).wrap());
                     }
                     None => {
-                        self.cmds.push(Cmd::RenderPanel(key.clone()));
                         ui.horizontal(|ui| {
                             ui.add(egui::Spinner::new().size(14.0).color(fpal.accent));
                             ui.label(RichText::new(t!("plugin-panel-loading")).size(13.0).color(fpal.text_muted));

@@ -6,7 +6,7 @@
 //! набор плагинов, хранилище или язык ([`forma_plugin_host::Runtime::generation`]), всё
 //! сохранённое забывается и рисуется заново.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
@@ -49,6 +49,9 @@ pub struct PluginUi {
     /// Блоки: язык (в нижнем регистре) → название.
     blocks: HashMap<String, String>,
     pub panel_trees: HashMap<String, Tree>,
+    /// Панели, которые плагин нарисует заново. Пока нового дерева нет, на экране старое:
+    /// прокрутка и свёрнутые группы остаются, как были (а не «Загрузка…» на кадр).
+    pub stale: HashSet<String>,
     pub block_trees: HashMap<u64, Tree>,
     /// Связанные папки открытого хранилища (имя → полный путь): их картинки показываются в
     /// блоках и панелях плагинов.
@@ -60,13 +63,23 @@ impl PluginUi {
     pub fn sync(&mut self, rt: &Runtime) {
         if rt.generation() != self.generation {
             self.generation = rt.generation();
-            self.panel_trees.clear();
+            self.refresh_all_panels();
             self.block_trees.clear();
         }
         self.panels = rt.panels();
         self.selection_menu = rt.menu("selection");
         self.note_menu = rt.menu("note");
         self.blocks = rt.block_langs().into_iter().map(|l| (l.to_lowercase(), rt.block(&l).unwrap_or_default())).collect();
+    }
+
+    /// Все открытые панели — нарисовать заново.
+    pub fn refresh_all_panels(&mut self) {
+        self.stale.extend(self.panel_trees.keys().cloned());
+    }
+
+    /// Панель надо (пере)рисовать: дерева нет или оно устарело.
+    pub fn needs_render(&self, key: &str) -> bool {
+        !self.panel_trees.contains_key(key) || self.stale.contains(key)
     }
 
     pub fn panel(&self, key: &str) -> Option<&PanelInfo> {

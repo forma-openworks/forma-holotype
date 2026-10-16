@@ -147,6 +147,8 @@ pub struct HolotypeApp {
     panels_note: Option<PathBuf>,
     /// Для какого хранилища (и его поколения) посчитаны связанные папки.
     linked_seen: Option<(PathBuf, u64)>,
+    /// Сколько завершённых задач плагинов уже учтено.
+    jobs_seen: u64,
     /// Команда плагина с клавиатуры ждёт текст выделения режима чтения.
     pending_command: Option<(String, CommandCx)>,
 }
@@ -186,6 +188,7 @@ impl HolotypeApp {
             plugin_ui: PluginUi::default(),
             panels_note: None,
             linked_seen: None,
+            jobs_seen: 0,
             pending_command: None,
         };
         // Хранилище: из аргумента командной строки или последнее открытое.
@@ -375,7 +378,16 @@ impl HolotypeApp {
             }
             return;
         }
-        match vault.resolve(target, from.as_deref()) {
+        let mut found = vault.resolve(target, from.as_deref());
+        if found.is_none() {
+            // Заметки нет в индексе — может, её только что записала другая программа: сначала
+            // перечитать хранилище, и только потом создавать новую (иначе рядом с настоящей
+            // появится пустая «… 1.md»).
+            self.rescan();
+            found = self.vault.as_ref().and_then(|v| v.resolve(target, from.as_deref()));
+        }
+        let Some(vault) = &self.vault else { return };
+        match found {
             Some(idx) => {
                 let rel = vault.notes[idx].rel.clone();
                 let offset = heading.as_ref().and_then(|h| vault.notes[idx].headings.iter().find(|x| markdown::same_heading(&x.text, h)).map(|x| x.offset));
@@ -550,7 +562,7 @@ impl HolotypeApp {
 
     /// Дерево панели плагина: нарисовать (если его ещё нет) или передать событие элемента.
     fn render_panel(&mut self, ctx: &egui::Context, key: &str, event: Option<forma_plugin_ui::Event>) {
-        if event.is_none() && self.plugin_ui.panel_trees.contains_key(key) {
+        if event.is_none() && !self.plugin_ui.needs_render(key) {
             return;
         }
         let Some((plugin, panel)) = plugin_ui::split_key(key) else { return };
@@ -564,12 +576,14 @@ impl HolotypeApp {
         match answer {
             Some(answer) => {
                 self.plugin_ui.panel_trees.insert(key.to_owned(), Tree::from_answer(answer));
+                self.plugin_ui.stale.remove(key);
                 ctx.request_repaint();
             }
             None => match rt.failure(plugin) {
                 Some(error) => {
                     let name = self.shell.plugins.get(plugin).map(|p| p.manifest.title().to_owned()).unwrap_or_else(|| plugin.to_owned());
                     self.plugin_ui.panel_trees.insert(key.to_owned(), Tree::Failed(t!("plugin-panel-stopped", plugin = name, error = error)));
+                    self.plugin_ui.stale.remove(key);
                 }
                 None => ctx.request_repaint_after_secs(0.1),
             },
@@ -759,6 +773,14 @@ impl HolotypeApp {
     /// Каждый кадр: code плагинов работает с открытым хранилищем и узнаёт, что в нём
     /// что-то поменялось (сохранили заметку, файлы поменяли снаружи).
     fn plugins_frame(&mut self, ctx: &egui::Context) {
+        // Программа плагина завершилась — она могла записать файлы (разбор, learner-state):
+        // перечитать хранилище до просьб плагина (открыть заметку, которую она создала), как
+        // «Synchronize files after execution» у внешних инструментов в IDE от JetBrains.
+        let finished = self.shell.plugin_runtime.as_ref().map_or(0, |rt| rt.jobs_finished());
+        if finished != self.jobs_seen {
+            self.jobs_seen = finished;
+            self.rescan();
+        }
         let note = self.current_rel();
         let Some(rt) = &mut self.shell.plugin_runtime else { return };
         rt.set_root(self.vault.as_ref().map(|v| v.root.as_path()));
@@ -780,17 +802,17 @@ impl HolotypeApp {
         // Панели рисуются для текущей заметки: перешли к другой — нарисовать заново.
         if note != self.panels_note {
             self.panels_note = note.clone();
-            self.plugin_ui.panel_trees.clear();
+            self.plugin_ui.refresh_all_panels();
         }
         for r in requests {
             match r {
                 forma_plugin_host::Request::OpenPanel { plugin, panel } => {
                     let key = format!("{plugin}/{panel}");
-                    self.plugin_ui.panel_trees.remove(&key);
+                    self.plugin_ui.stale.insert(key.clone());
                     self.show_panel(&key);
                 }
                 forma_plugin_host::Request::RefreshPanel { plugin, panel } => {
-                    self.plugin_ui.panel_trees.remove(&format!("{plugin}/{panel}"));
+                    self.plugin_ui.stale.insert(format!("{plugin}/{panel}"));
                 }
                 forma_plugin_host::Request::OpenLink { target, .. } => {
                     self.cmds.push(Cmd::OpenLink { target, new_tab: false, from: note.clone(), tab: None });
