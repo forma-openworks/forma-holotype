@@ -22,7 +22,7 @@ use crate::fonts;
 use crate::graph::{Graph, GraphAction};
 use crate::markdown;
 use crate::panes::{Kind, NoteTab, Pane};
-use crate::plugin_ui::{self, CommandCx, PluginUi, Tree};
+use crate::plugin_ui::{self, CommandCx, PluginUi};
 use crate::settings::Notes;
 use crate::theme::{self, Palette};
 use crate::vault::Vault;
@@ -98,11 +98,12 @@ impl EditorViewer for Viewer<'_> {
                     .collect(),
             })
             .collect();
-        if !self.plugins.panels.is_empty() {
+        if !self.plugins.core.panels.is_empty() {
             groups.push(KindGroup {
                 title: t!("kind-group-plugins"),
                 kinds: self
                     .plugins
+                    .core
                     .panels
                     .iter()
                     .map(|p| EditorKind {
@@ -155,7 +156,7 @@ impl EditorViewer for Viewer<'_> {
 
     fn icon(&mut self, pane: &Pane) -> Option<(String, Color32)> {
         let icon = match (pane.kind, &pane.panel) {
-            (Kind::Plugin, Some(key)) => panel_icon(self.plugins.panel(key).and_then(|p| p.icon.as_deref())),
+            (Kind::Plugin, Some(key)) => panel_icon(self.plugins.core.panel(key).and_then(|p| p.icon.as_deref())),
             (kind, _) => kind.icon().to_owned(),
         };
         Some((icon, self.pal.accent))
@@ -403,14 +404,14 @@ impl Viewer<'_> {
     /// Название панели плагина (из манифеста), если плагин на месте.
     fn panel_title(&self, pane: &Pane) -> String {
         let key = pane.panel.as_deref().unwrap_or_default();
-        self.plugins.panel(key).map(|p| p.title.clone()).unwrap_or_else(|| key.to_owned())
+        self.plugins.core.panel(key).map(|p| p.title.clone()).unwrap_or_else(|| key.to_owned())
     }
 
     /// Панель плагина: его дерево элементов. Дерева ещё нет — просьба нарисовать; события
     /// элементов и кнопки с командами уходят плагину, ссылки из markdown открываются здесь.
     fn plugin_panel(&mut self, ui: &mut Ui, vault: &Vault, pane: &Pane) {
         let key = pane.panel.clone().unwrap_or_default();
-        if self.plugins.panel(&key).is_none() {
+        if self.plugins.core.panel(&key).is_none() {
             let plugin = plugin_ui::split_key(&key).map_or(key.as_str(), |(p, _)| p);
             empty(ui, self.fpal, "plugin", &t!("pane-plugin"), &t!("plugin-panel-gone", plugin = plugin.to_owned()));
             return;
@@ -418,41 +419,23 @@ impl Viewer<'_> {
         let note = self.current_rel.clone().unwrap_or_default();
         let fpal = self.fpal;
         let size = self.notes.text_size * 0.9;
-        if self.plugins.needs_render(&key) {
+        if self.plugins.core.needs_render(&key) {
             self.cmds.push(Cmd::RenderPanel(key.clone()));
         }
-        ScrollArea::vertical().id_salt(("plugin-panel", pane.id)).auto_shrink([false, false]).show(ui, |ui| {
-            Frame::new().inner_margin(Margin::same(12)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                match self.plugins.panel_trees.get(&key) {
-                    Some(Tree::Ready(tree)) => {
-                        let mut hooks = plugin_ui::Hooks { pal: self.pal, vault, linked: &self.plugins.linked, note: &note, size, actions: Vec::new() };
-                        let out = forma_ui::elements::show(ui, fpal, Id::new(("plugin-panel", &key)), tree, &mut hooks);
-                        for a in hooks.actions {
-                            self.cmds.push(super::note::render_cmd(a, &note, None));
-                        }
-                        for o in out {
-                            self.cmds.push(match o {
-                                forma_ui::elements::Output::Event(event) => Cmd::PanelEvent { key: key.clone(), event },
-                                forma_ui::elements::Output::Command { command, args } => {
-                                    let note = (!note.as_os_str().is_empty()).then_some(note.as_path());
-                                    Cmd::PluginCommand { command, cx: CommandCx { args, ..CommandCx::new("panel", note) } }
-                                }
-                            });
-                        }
-                    }
-                    Some(Tree::Failed(error)) => {
-                        ui.add(egui::Label::new(RichText::new(t!("plugin-panel-failed", error = error.clone())).size(13.0).color(fpal.warning)).wrap());
-                    }
-                    None => {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Spinner::new().size(14.0).color(fpal.accent));
-                            ui.label(RichText::new(t!("plugin-panel-loading")).size(13.0).color(fpal.text_muted));
-                        });
-                    }
+        let mut hooks = plugin_ui::Hooks { pal: self.pal, vault, linked: &self.plugins.linked, note: &note, size, actions: Vec::new() };
+        let out = self.plugins.core.show(ui, fpal, &key, Id::new(("plugin-panel", pane.id)), &mut hooks);
+        for a in hooks.actions {
+            self.cmds.push(super::note::render_cmd(a, &note, None));
+        }
+        for o in out {
+            self.cmds.push(match o {
+                forma_ui::elements::Output::Event(event) => Cmd::PanelEvent { key: key.clone(), event },
+                forma_ui::elements::Output::Command { command, args } => {
+                    let note = (!note.as_os_str().is_empty()).then_some(note.as_path());
+                    Cmd::PluginCommand { command, cx: CommandCx { args, ..CommandCx::new("panel", note) } }
                 }
             });
-        });
+        }
     }
 
     fn files(&mut self, ui: &mut Ui, vault: &Vault) {

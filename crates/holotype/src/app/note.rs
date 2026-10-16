@@ -223,7 +223,7 @@ fn note_menu(ui: &mut Ui, cx: &NoteCx, tab: u64, rel: &Path, doc: &mut NoteDoc, 
         ctx.data_mut(|d| d.insert_temp(key, st.clone()));
     }
     // Пустое меню не открываем: нечего ни скопировать, ни спросить.
-    let has_items = st.editor || st.selected || st.hit.link.is_some() || !cx.plugins.note_menu.is_empty();
+    let has_items = st.editor || st.selected || st.hit.link.is_some() || !cx.plugins.core.note_menu.is_empty();
     if opening && !has_items {
         return;
     }
@@ -264,7 +264,7 @@ fn note_menu(ui: &mut Ui, cx: &NoteCx, tab: u64, rel: &Path, doc: &mut NoteDoc, 
         } else if st.selected && ui.add(item(t!("menu-copy"), "Ctrl+C")).clicked() {
             ctx.copy_text(selection(&st, doc));
         }
-        let plugin_items: Vec<_> = cx.plugins.selection_menu.iter().filter(|_| st.selected).chain(cx.plugins.note_menu.iter()).collect();
+        let plugin_items: Vec<_> = cx.plugins.core.selection_menu.iter().filter(|_| st.selected).chain(cx.plugins.core.note_menu.iter()).collect();
         if !plugin_items.is_empty() {
             if st.editor || st.selected {
                 ui.separator();

@@ -1,57 +1,33 @@
 //! Плагины в Holotype: их панели (вид редактора области, как в меню вида у Blender), блоки
 //! заметок (` ```lang `), пункты контекстного меню и команды.
 //!
-//! Деревья элементов от плагинов хранятся здесь: плагин спрашивают, только когда нужно —
-//! новый блок, событие панели, просьба самого плагина, — а не каждый кадр. Когда меняется
-//! набор плагинов, хранилище или язык ([`forma_plugin_host::Runtime::generation`]), всё
-//! сохранённое забывается и рисуется заново.
+//! Панели и пункты меню — общие для программ Forma ([`forma_shell::plugin_panels`]); здесь
+//! то, что есть только у Holotype: блоки заметок, связанные папки хранилища-курса, правки
+//! заметок. Ответы на блоки хранятся, пока не изменится текст блока; когда меняется набор
+//! плагинов, хранилище или язык ([`forma_plugin_host::Runtime::generation`]), они
+//! забываются и рисуются заново.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, CornerRadius, Frame, Label, Margin, RichText, Stroke, Ui};
 use forma_i18n::t;
-use forma_plugin_host::{CommandInfo, PanelInfo, Runtime};
-use forma_plugin_ui::Element;
-use serde::Serialize;
-use serde_json::Value;
+use forma_plugin_host::Runtime;
+pub use forma_shell::plugin_panels::{CommandCx, PluginPanels, Tree, note_path, split_key};
 
 use crate::render::{Action, Renderer};
 use crate::theme::Palette;
 use crate::vault::Vault;
 
-/// Ответ плагина: дерево элементов или почему его нет.
-pub enum Tree {
-    Ready(Element),
-    Failed(String),
-}
-
-impl Tree {
-    /// Ответ рантайма: JSON дерева или ошибка плагина.
-    pub fn from_answer(answer: Result<String, String>) -> Tree {
-        match answer.and_then(|json| Element::from_json(&json)) {
-            Ok(e) => Tree::Ready(e),
-            Err(e) => Tree::Failed(e),
-        }
-    }
-}
-
-/// Что Holotype знает о плагинах: списки вкладов (обновляются каждый кадр) и ответы.
+/// Что Holotype знает о плагинах: панели и пункты меню (общее с другими программами Forma),
+/// блоки заметок и связанные папки хранилища.
 #[derive(Default)]
 pub struct PluginUi {
-    /// Поколение плагинов, для которого собраны ответы.
-    generation: u64,
-    pub panels: Vec<PanelInfo>,
-    /// Пункты меню выделенного текста и всей заметки.
-    pub selection_menu: Vec<CommandInfo>,
-    pub note_menu: Vec<CommandInfo>,
+    /// Панели плагинов и пункты меню.
+    pub core: PluginPanels,
     /// Блоки: язык (в нижнем регистре) → название.
     blocks: HashMap<String, String>,
-    pub panel_trees: HashMap<String, Tree>,
-    /// Панели, которые плагин нарисует заново. Пока нового дерева нет, на экране старое:
-    /// прокрутка и свёрнутые группы остаются, как были (а не «Загрузка…» на кадр).
-    pub stale: HashSet<String>,
     pub block_trees: HashMap<u64, Tree>,
     /// Связанные папки открытого хранилища (имя → полный путь): их картинки показываются в
     /// блоках и панелях плагинов.
@@ -61,29 +37,10 @@ pub struct PluginUi {
 impl PluginUi {
     /// Берёт вклады работающих плагинов; сменилось поколение — забывает ответы.
     pub fn sync(&mut self, rt: &Runtime) {
-        if rt.generation() != self.generation {
-            self.generation = rt.generation();
-            self.refresh_all_panels();
+        if self.core.sync(rt) {
             self.block_trees.clear();
         }
-        self.panels = rt.panels();
-        self.selection_menu = rt.menu("selection");
-        self.note_menu = rt.menu("note");
         self.blocks = rt.block_langs().into_iter().map(|l| (l.to_lowercase(), rt.block(&l).unwrap_or_default())).collect();
-    }
-
-    /// Все открытые панели — нарисовать заново.
-    pub fn refresh_all_panels(&mut self) {
-        self.stale.extend(self.panel_trees.keys().cloned());
-    }
-
-    /// Панель надо (пере)рисовать: дерева нет или оно устарело.
-    pub fn needs_render(&self, key: &str) -> bool {
-        !self.panel_trees.contains_key(key) || self.stale.contains(key)
-    }
-
-    pub fn panel(&self, key: &str) -> Option<&PanelInfo> {
-        self.panels.iter().find(|p| p.key() == key)
     }
 
     /// Рисует ли блок ` ```lang ` плагин; его название (может быть пустым).
@@ -245,39 +202,6 @@ pub fn append_to_section(text: &str, heading: &str, markdown: &str) -> Option<St
     let body = before.trim_end_matches(['\n', '\r']);
     let tail = if after.is_empty() { String::new() } else { format!("\n{after}") };
     Some(format!("{body}\n\n{add}\n{tail}"))
-}
-
-/// Ключ панели `плагин/панель` → (плагин, панель).
-pub fn split_key(key: &str) -> Option<(&str, &str)> {
-    key.split_once('/')
-}
-
-/// Где и с чем вызвали команду плагина — то, что SDK читает как `CommandContext`.
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct CommandCx {
-    /// `menu`, `key`, `block`, `panel`.
-    pub from: String,
-    pub note: String,
-    pub selection: String,
-    pub heading: String,
-    pub paragraph: String,
-    #[serde(skip_serializing_if = "Value::is_null")]
-    pub args: Value,
-}
-
-impl CommandCx {
-    pub fn new(from: &str, note: Option<&Path>) -> Self {
-        Self { from: from.to_owned(), note: note.map(note_path).unwrap_or_default(), ..Default::default() }
-    }
-
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
-    }
-}
-
-/// Путь заметки для плагина: от корня хранилища, через `/`.
-pub fn note_path(rel: &Path) -> String {
-    rel.to_string_lossy().replace('\\', "/")
 }
 
 /// Заголовок раздела, в котором стоит байт `at` текста Markdown, и абзац вокруг него.

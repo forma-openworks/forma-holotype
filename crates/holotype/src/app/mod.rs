@@ -562,32 +562,11 @@ impl HolotypeApp {
 
     /// Дерево панели плагина: нарисовать (если его ещё нет) или передать событие элемента.
     fn render_panel(&mut self, ctx: &egui::Context, key: &str, event: Option<forma_plugin_ui::Event>) {
-        if event.is_none() && !self.plugin_ui.needs_render(key) {
-            return;
-        }
-        let Some((plugin, panel)) = plugin_ui::split_key(key) else { return };
         let note = self.current_rel().map(|r| plugin_ui::note_path(&r)).unwrap_or_default();
         let context = serde_json::json!({ "note": note, "dark": self.shell.pal.dark }).to_string();
-        let Some(rt) = &mut self.shell.plugin_runtime else { return };
-        let answer = match &event {
-            Some(e) => rt.panel_event(plugin, panel, &e.to_json(), &context),
-            None => rt.render_panel(plugin, panel, &context),
-        };
-        match answer {
-            Some(answer) => {
-                self.plugin_ui.panel_trees.insert(key.to_owned(), Tree::from_answer(answer));
-                self.plugin_ui.stale.remove(key);
-                ctx.request_repaint();
-            }
-            None => match rt.failure(plugin) {
-                Some(error) => {
-                    let name = self.shell.plugins.get(plugin).map(|p| p.manifest.title().to_owned()).unwrap_or_else(|| plugin.to_owned());
-                    self.plugin_ui.panel_trees.insert(key.to_owned(), Tree::Failed(t!("plugin-panel-stopped", plugin = name, error = error)));
-                    self.plugin_ui.stale.remove(key);
-                }
-                None => ctx.request_repaint_after_secs(0.1),
-            },
-        }
+        let shell = &mut self.shell;
+        let Some(rt) = &mut shell.plugin_runtime else { return };
+        self.plugin_ui.core.render(ctx, rt, &shell.plugins, key, event.as_ref(), &context);
     }
 
     /// Команда плагина. Что плагин попросит в ответ (открыть панель, ссылку), программа
@@ -802,17 +781,17 @@ impl HolotypeApp {
         // Панели рисуются для текущей заметки: перешли к другой — нарисовать заново.
         if note != self.panels_note {
             self.panels_note = note.clone();
-            self.plugin_ui.refresh_all_panels();
+            self.plugin_ui.core.refresh_all();
         }
         for r in requests {
             match r {
                 forma_plugin_host::Request::OpenPanel { plugin, panel } => {
                     let key = format!("{plugin}/{panel}");
-                    self.plugin_ui.stale.insert(key.clone());
+                    self.plugin_ui.core.refresh(&key);
                     self.show_panel(&key);
                 }
                 forma_plugin_host::Request::RefreshPanel { plugin, panel } => {
-                    self.plugin_ui.stale.insert(format!("{plugin}/{panel}"));
+                    self.plugin_ui.core.refresh(&format!("{plugin}/{panel}"));
                 }
                 forma_plugin_host::Request::OpenLink { target, .. } => {
                     self.cmds.push(Cmd::OpenLink { target, new_tab: false, from: note.clone(), tab: None });
