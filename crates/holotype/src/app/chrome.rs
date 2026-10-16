@@ -216,6 +216,7 @@ impl HolotypeApp {
             cmds: &mut self.cmds,
             now,
             plugin_hovers,
+            plugins: &self.plugin_ui,
         };
         workspace::show(ui, surface, dock, &shell.dock_style, window_bg, &mut viewer);
     }

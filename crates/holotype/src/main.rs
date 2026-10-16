@@ -23,6 +23,7 @@ mod icon;
 mod icons;
 mod math;
 mod panes;
+mod plugin_ui;
 mod render;
 mod settings;
 mod term;

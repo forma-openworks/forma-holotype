@@ -1,8 +1,9 @@
 //! Вкладка заметки: шапка (история, название, вид), редактор Markdown, красивый просмотр
 //! и сплит. Редактор подсвечивает разметку, продолжает списки, разворачивает сокращения и
-//! подсказывает ссылки (см. `assist`).
+//! подсказывает ссылки (см. `assist`). Правый щелчок в редакторе и в режиме чтения
+//! открывает контекстное меню: ссылка, буфер обмена и пункты плагинов, как в IDE.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use eframe::egui::{
     self, Align, FontFamily, FontId, Frame, Id, Key, Layout, Margin, Modifiers, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, vec2,
@@ -18,7 +19,8 @@ use crate::actions;
 use crate::autoscroll;
 use crate::editor::{self, EditorStyle};
 use crate::markdown;
-use crate::render::{Action, Renderer};
+use crate::plugin_ui::{self, CommandCx, PluginUi};
+use crate::render::{Action, MenuHit, Renderer};
 use crate::panes::{NoteTab, ViewMode};
 use crate::theme::{self, Palette};
 use crate::vault::Vault;
@@ -43,6 +45,36 @@ pub struct NoteCx<'a> {
     pub now: f64,
     /// У плагинов есть подсказки при наведении (термины курса).
     pub plugin_hovers: bool,
+    /// Блоки, пункты меню и команды плагинов.
+    pub plugins: &'a PluginUi,
+}
+
+/// Что запомнило контекстное меню заметки, когда открылось.
+#[derive(Clone, Debug, Default)]
+struct MenuState {
+    /// Меню редактора (иначе — режима чтения).
+    editor: bool,
+    /// Что было под указателем: раздел, абзац, ссылка.
+    hit: MenuHit,
+    /// Выделение в редакторе: символы `a..b`.
+    range: Option<(usize, usize)>,
+    /// Есть ли выделение.
+    selected: bool,
+    /// Текст выделения режима чтения (приходит кадром позже, см. `forma_ui::selection`).
+    text: Option<String>,
+}
+
+/// Действие renderer — команда программы (ссылки из заметки `rel`, вкладка `tab`).
+pub(super) fn render_cmd(a: Action, rel: &Path, tab: Option<u64>) -> Cmd {
+    match a {
+        Action::OpenNote { target, new_tab } => Cmd::OpenLink { target, new_tab, from: Some(rel.to_path_buf()), tab },
+        Action::OpenUrl(u) => Cmd::OpenUrl(u),
+        Action::ToggleTask(r) => Cmd::ToggleTask { rel: rel.to_path_buf(), range: r },
+        Action::SearchTag(t) => Cmd::SearchTag(t),
+        Action::Hover { key, text, offset } => Cmd::PluginHover { key, text, offset, note: rel.to_path_buf() },
+        Action::RenderBlock { lang, source } => Cmd::RenderBlock { lang, source, note: rel.to_path_buf() },
+        Action::PluginCommand { command, args } => Cmd::PluginCommand { command, cx: CommandCx { args, ..CommandCx::new("block", Some(rel)) } },
+    }
 }
 
 /// Вкладка заметки `tab`: заметка `doc` и состояние вкладки `view`.
@@ -64,9 +96,17 @@ pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, doc: &mu
     let max_w = if cx.readable { size * 50.0 } else { f32::INFINITY };
     let mut actions = Vec::new();
     let editor_id = Id::new(("editor", tab.id));
+    // Контекстное меню: правый щелчок в редакторе или в режиме чтения (см. `note_menu`).
+    let menu_id = Id::new(("note-menu", tab.id));
+    let mut open_menu: Option<MenuState> = None;
+    let edit_menu = |ui: &Ui, doc: &NoteDoc| -> Option<MenuState> {
+        forma_ui::selection::menu_area(ui, menu_id.with("edit"), ui.available_rect_before_wrap())?;
+        Some(editor_menu_state(ui.ctx(), editor_id, &doc.text))
+    };
     match mode {
         ViewMode::Edit => {
             let view_h = ui.available_height();
+            open_menu = edit_menu(ui, doc);
             ScrollArea::vertical().id_salt(("edit", tab.id)).auto_shrink([false, false]).show(ui, |ui| {
                 centered(ui, max_w, 32.0, |ui| {
                     ui.add_space(24.0);
@@ -78,11 +118,15 @@ pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, doc: &mu
             });
         }
         ViewMode::Preview => {
+            let menu_at = forma_ui::selection::menu_area(ui, menu_id.with("read"), ui.available_rect_before_wrap());
             ScrollArea::vertical().id_salt(("preview", tab.id)).auto_shrink([false, false]).show(ui, |ui| {
                 centered(ui, max_w, 32.0, |ui| {
                     ui.add_space(24.0);
                     inline_title(ui, rel, doc, pal, size, cmds);
-                    preview(ui, cx, rel, doc, view, &mut actions);
+                    let hit = preview(ui, cx, rel, doc, view, &mut actions, menu_at);
+                    if menu_at.is_some() {
+                        open_menu = Some(reading_menu_state(ui.ctx(), hit));
+                    }
                     ui.add_space(160.0);
                 });
                 autoscroll::area(ui, Id::new(("autoscroll-preview", tab.id)), pal);
@@ -92,6 +136,10 @@ pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, doc: &mu
             let view_h = ui.available_height();
             let full = ui.available_rect_before_wrap();
             ui.columns(2, |cols| {
+                if let Some(st) = edit_menu(&cols[0], doc) {
+                    open_menu = Some(st);
+                }
+                let menu_at = forma_ui::selection::menu_area(&cols[1], menu_id.with("read"), cols[1].available_rect_before_wrap());
                 ScrollArea::vertical().id_salt(("split-edit", tab.id)).auto_shrink([false, false]).show(&mut cols[0], |ui| {
                     centered(ui, max_w, 22.0, |ui| {
                         ui.add_space(20.0);
@@ -103,7 +151,10 @@ pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, doc: &mu
                 ScrollArea::vertical().id_salt(("split-preview", tab.id)).auto_shrink([false, false]).show(&mut cols[1], |ui| {
                     centered(ui, max_w, 22.0, |ui| {
                         ui.add_space(20.0);
-                        preview(ui, cx, rel, doc, view, &mut actions);
+                        let hit = preview(ui, cx, rel, doc, view, &mut actions, menu_at);
+                        if menu_at.is_some() {
+                            open_menu = Some(reading_menu_state(ui.ctx(), hit));
+                        }
                         ui.add_space(160.0);
                     });
                     autoscroll::area(ui, Id::new(("autoscroll-split-preview", tab.id)), pal);
@@ -113,27 +164,170 @@ pub fn note_ui(ui: &mut Ui, cx: &NoteCx, tab: &mut NoteTab, rel: &Path, doc: &mu
         }
     }
     for a in actions {
-        cmds.push(match a {
-            Action::OpenNote { target, new_tab } => Cmd::OpenLink { target, new_tab, from: Some(rel.to_path_buf()), tab: Some(tab.id) },
-            Action::OpenUrl(u) => Cmd::OpenUrl(u),
-            Action::ToggleTask(r) => Cmd::ToggleTask { rel: rel.to_path_buf(), range: r },
-            Action::SearchTag(t) => Cmd::SearchTag(t),
-            Action::Hover { key, text, offset } => Cmd::PluginHover { key, text, offset, note: rel.to_path_buf() },
-        });
+        cmds.push(render_cmd(a, rel, Some(tab.id)));
     }
+    note_menu(ui, cx, tab.id, rel, doc, editor_id, menu_id, open_menu, cmds);
 }
 
-/// Красивый просмотр заметки.
-fn preview(ui: &mut Ui, cx: &NoteCx, rel: &Path, doc: &mut NoteDoc, view: &mut NoteView, actions: &mut Vec<Action>) {
+/// Красивый просмотр заметки. `menu_at` — место правого щелчка этого кадра; что под ним
+/// оказалось, возвращается для меню.
+fn preview(ui: &mut Ui, cx: &NoteCx, rel: &Path, doc: &mut NoteDoc, view: &mut NoteView, actions: &mut Vec<Action>, menu_at: Option<egui::Pos2>) -> MenuHit {
     let parsed = doc.parsed();
     let mut r = Renderer::new(cx.pal, cx.vault, rel, parsed, cx.size);
     r.hovers = cx.plugin_hovers;
+    r.plugins = Some((cx.plugins, cx.fpal));
+    r.menu_at = menu_at;
     r.scroll_to = view.preview_scroll.take();
     r.show(ui);
     actions.append(&mut r.actions);
     if r.scroll_to.is_some() {
         view.preview_scroll = r.scroll_to.take();
     }
+    r.menu_hit.unwrap_or_default()
+}
+
+/// Меню режима чтения: выделение текста в подписях egui видно только как «есть или нет»,
+/// сам текст приходит кадром позже.
+fn reading_menu_state(ctx: &egui::Context, hit: MenuHit) -> MenuState {
+    MenuState { editor: false, hit, range: None, selected: forma_ui::selection::has_selection(ctx), text: None }
+}
+
+/// Меню редактора: выделение и место курсора — из состояния поля ввода.
+fn editor_menu_state(ctx: &egui::Context, editor_id: Id, text: &str) -> MenuState {
+    let range = TextEditState::load(ctx, editor_id).and_then(|s| s.cursor.char_range()).map(|r| {
+        let [a, b] = r.sorted_cursors();
+        (a.index.0, b.index.0)
+    });
+    let at = range.map_or(0, |(a, _)| char_to_byte(text, a));
+    let (heading, paragraph) = plugin_ui::context_at(text, at);
+    MenuState { editor: true, hit: MenuHit { heading, paragraph, link: None }, range, selected: range.is_some_and(|(a, b)| a < b), text: None }
+}
+
+/// Контекстное меню заметки, как в IDE: что под указателем (ссылка), буфер обмена и пункты
+/// плагинов — для выделенного текста и для всей заметки. Пункты, которые здесь ни к чему,
+/// не показываются, а не тускнеют (так делают контекстные меню JetBrains и VS Code).
+#[allow(clippy::too_many_arguments)]
+fn note_menu(ui: &mut Ui, cx: &NoteCx, tab: u64, rel: &Path, doc: &mut NoteDoc, editor_id: Id, menu_id: Id, open: Option<MenuState>, cmds: &mut Vec<Cmd>) {
+    let ctx = ui.ctx().clone();
+    let key = menu_id.with("state");
+    let opening = open.is_some();
+    if let Some(st) = open {
+        ctx.data_mut(|d| d.insert_temp(key, st));
+    }
+    let mut st: MenuState = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
+    if !st.editor
+        && st.text.is_none()
+        && let Some(t) = forma_ui::selection::take(&ctx)
+    {
+        st.text = Some(t);
+        ctx.data_mut(|d| d.insert_temp(key, st.clone()));
+    }
+    // Пустое меню не открываем: нечего ни скопировать, ни спросить.
+    let has_items = st.editor || st.selected || st.hit.link.is_some() || !cx.plugins.note_menu.is_empty();
+    if opening && !has_items {
+        return;
+    }
+    let rel_buf: PathBuf = rel.to_path_buf();
+    let selection = |st: &MenuState, doc: &NoteDoc| -> String {
+        match (st.editor, st.range) {
+            (true, Some((a, b))) => doc.text.chars().skip(a).take(b.saturating_sub(a)).collect(),
+            _ => st.text.clone().unwrap_or_default(),
+        }
+    };
+    forma_ui::theme::context_menu_at(ui, menu_id, opening, |ui| {
+        let item = |text: String, keys: &str| egui::Button::new(text).shortcut_text(keys.to_owned());
+        if let Some((target, url)) = st.hit.link.clone() {
+            if ui.add(item(t!("menu-open-link"), "")).clicked() {
+                cmds.push(if url { Cmd::OpenUrl(target.clone()) } else { Cmd::OpenLink { target: target.clone(), new_tab: false, from: Some(rel_buf.clone()), tab: Some(tab) } });
+            }
+            if !url && ui.add(item(t!("menu-open-link-new-tab"), "")).clicked() {
+                cmds.push(Cmd::OpenLink { target: target.clone(), new_tab: true, from: Some(rel_buf.clone()), tab: Some(tab) });
+            }
+            if ui.add(item(t!("menu-copy-link"), "")).clicked() {
+                ctx.copy_text(if url { target.clone() } else { format!("[[{target}]]") });
+            }
+            ui.separator();
+        }
+        if st.editor {
+            if st.selected && ui.add(item(t!("menu-cut"), "Ctrl+X")).clicked() {
+                edit_clipboard(&ctx, editor_id, doc, cx.now, Clip::Cut);
+            }
+            if st.selected && ui.add(item(t!("menu-copy"), "Ctrl+C")).clicked() {
+                edit_clipboard(&ctx, editor_id, doc, cx.now, Clip::Copy);
+            }
+            if ui.add(item(t!("menu-paste"), "Ctrl+V")).clicked() {
+                edit_clipboard(&ctx, editor_id, doc, cx.now, Clip::Paste);
+            }
+            if ui.add(item(t!("menu-select-all"), "Ctrl+A")).clicked() {
+                edit_clipboard(&ctx, editor_id, doc, cx.now, Clip::SelectAll);
+            }
+        } else if st.selected && ui.add(item(t!("menu-copy"), "Ctrl+C")).clicked() {
+            ctx.copy_text(selection(&st, doc));
+        }
+        let plugin_items: Vec<_> = cx.plugins.selection_menu.iter().filter(|_| st.selected).chain(cx.plugins.note_menu.iter()).collect();
+        if !plugin_items.is_empty() {
+            if st.editor || st.selected {
+                ui.separator();
+            }
+            for c in plugin_items {
+                let shortcut = cx.keys.keymap.text(cx.keys.actions, &c.id);
+                let resp = ui.add(forma_shell::chrome::icon_item(ui, "plugin", c.title.clone(), shortcut));
+                if resp.clicked() {
+                    let mut command = CommandCx::new("menu", Some(rel));
+                    command.selection = selection(&st, doc);
+                    command.heading = st.hit.heading.clone();
+                    command.paragraph = st.hit.paragraph.clone();
+                    cmds.push(Cmd::PluginCommand { command: c.id.clone(), cx: command });
+                }
+            }
+        }
+    });
+}
+
+/// Что сделать с буфером обмена в редакторе.
+#[derive(Clone, Copy)]
+enum Clip {
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
+
+/// Вырезать, копировать, вставить и выделить всё из контекстного меню редактора — как те же
+/// сочетания клавиш. Фокус возвращается в редактор.
+fn edit_clipboard(ctx: &egui::Context, editor_id: Id, doc: &mut NoteDoc, now: f64, what: Clip) {
+    let Some(mut state) = TextEditState::load(ctx, editor_id) else { return };
+    let (a, b) = state
+        .cursor
+        .char_range()
+        .map(|r| {
+            let [a, b] = r.sorted_cursors();
+            (a.index.0, b.index.0)
+        })
+        .unwrap_or((0, 0));
+    let (ba, bb) = (char_to_byte(&doc.text, a), char_to_byte(&doc.text, b));
+    match what {
+        Clip::Copy => ctx.copy_text(doc.text[ba..bb].to_owned()),
+        Clip::Cut => {
+            ctx.copy_text(doc.text[ba..bb].to_owned());
+            doc.text.replace_range(ba..bb, "");
+            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(a))));
+            doc.mark_edited(now);
+        }
+        Clip::Paste => {
+            let Some(text) = arboard::Clipboard::new().and_then(|mut c| c.get_text()).ok() else { return };
+            let text = text.replace("\r\n", "\n");
+            doc.text.replace_range(ba..bb, &text);
+            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(a + text.chars().count()))));
+            doc.mark_edited(now);
+        }
+        Clip::SelectAll => {
+            let n = doc.text.chars().count();
+            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(n))));
+        }
+    }
+    state.store(ctx, editor_id);
+    ctx.memory_mut(|m| m.request_focus(editor_id));
 }
 
 /// Шапка вкладки: назад и вперёд, название с папкой, переключатель вида.

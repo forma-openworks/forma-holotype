@@ -19,6 +19,10 @@ forma-actions.workspace = true
 forma-settings.workspace = true
 forma-plugins.workspace = true
 forma-shell.workspace = true
+forma-plugin-host.workspace = true
+forma-plugin-ui.workspace = true
+# «Вставить» в контекстном меню редактора (тот же crate, что у eframe).
+arboard = { version = "3.6", default-features = false }
 eframe.workspace = true
 egui_extras = { version = "0.36", features = ["file", "image", "gif", "webp"] }
 # Подсветка кода при экспорте в HTML (в окне подсвечивает оболочка — цветами темы).

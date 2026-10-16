@@ -22,6 +22,7 @@ use crate::fonts;
 use crate::graph::{Graph, GraphAction};
 use crate::markdown;
 use crate::panes::{Kind, NoteTab, Pane};
+use crate::plugin_ui::{self, CommandCx, PluginUi, Tree};
 use crate::settings::Notes;
 use crate::theme::{self, Palette};
 use crate::vault::Vault;
@@ -53,7 +54,12 @@ pub struct Viewer<'a> {
     pub now: f64,
     /// У плагинов есть подсказки при наведении.
     pub plugin_hovers: bool,
+    /// Панели, блоки и пункты меню плагинов.
+    pub plugins: &'a PluginUi,
 }
+
+/// Вид редактора «панель плагина» в меню вида: `plugin:плагин/панель`.
+const PLUGIN_KIND: &str = "plugin:";
 
 impl Viewer<'_> {
     fn new_id(&mut self) -> u64 {
@@ -79,8 +85,10 @@ fn stem(rel: &Path) -> String {
 impl EditorViewer for Viewer<'_> {
     type Editor = Pane;
 
+    /// Виды редакторов по столбцам меню; панели плагинов — своим столбцом «Плагины», как
+    /// типы редакторов от аддонов в меню вида области у Blender.
     fn kinds(&mut self) -> Vec<KindGroup> {
-        Kind::GROUPS
+        let mut groups: Vec<KindGroup> = Kind::GROUPS
             .iter()
             .map(|(title, kinds)| KindGroup {
                 title: forma_i18n::tr(title),
@@ -89,21 +97,47 @@ impl EditorViewer for Viewer<'_> {
                     .map(|&k| EditorKind { id: k.id().to_owned(), title: k.title(), icon: k.icon().to_owned(), shortcut: self.kind_keys(k) })
                     .collect(),
             })
-            .collect()
+            .collect();
+        if !self.plugins.panels.is_empty() {
+            groups.push(KindGroup {
+                title: t!("kind-group-plugins"),
+                kinds: self
+                    .plugins
+                    .panels
+                    .iter()
+                    .map(|p| EditorKind {
+                        id: format!("{PLUGIN_KIND}{}", p.key()),
+                        title: p.title.clone(),
+                        icon: panel_icon(p.icon.as_deref()),
+                        shortcut: String::new(),
+                    })
+                    .collect(),
+            });
+        }
+        groups
     }
 
     fn kind(&mut self, pane: &Pane) -> String {
-        pane.kind.id().to_owned()
+        match (pane.kind, &pane.panel) {
+            (Kind::Plugin, Some(key)) => format!("{PLUGIN_KIND}{key}"),
+            (kind, _) => kind.id().to_owned(),
+        }
     }
 
     fn create(&mut self, kind: &str) -> Option<Pane> {
+        if let Some(key) = kind.strip_prefix(PLUGIN_KIND) {
+            return Some(Pane::plugin(key, self.new_id()));
+        }
         let kind = Kind::from_id(kind)?;
         Some(Pane::new(kind, self.new_id()))
     }
 
     /// Вид меняется, а вкладки заметок остаются — вернёшь заметки, вернутся и они.
     fn switch(&mut self, pane: &mut Pane, kind: &str) {
-        if let Some(kind) = Kind::from_id(kind) {
+        if let Some(key) = kind.strip_prefix(PLUGIN_KIND) {
+            pane.kind = Kind::Plugin;
+            pane.panel = Some(key.to_owned());
+        } else if let Some(kind) = Kind::from_id(kind) {
             pane.kind = kind;
             if kind == Kind::Graph {
                 self.graph.reheat();
@@ -114,12 +148,17 @@ impl EditorViewer for Viewer<'_> {
     fn title(&mut self, pane: &Pane) -> String {
         match pane.active_note() {
             Some(n) => stem(&n.rel),
+            None if pane.kind == Kind::Plugin => self.panel_title(pane),
             None => pane.kind.title(),
         }
     }
 
     fn icon(&mut self, pane: &Pane) -> Option<(String, Color32)> {
-        Some((pane.kind.icon().to_owned(), self.pal.accent))
+        let icon = match (pane.kind, &pane.panel) {
+            (Kind::Plugin, Some(key)) => panel_icon(self.plugins.panel(key).and_then(|p| p.icon.as_deref())),
+            (kind, _) => kind.icon().to_owned(),
+        };
+        Some((icon, self.pal.accent))
     }
 
     fn id(&mut self, pane: &Pane) -> Id {
@@ -130,6 +169,9 @@ impl EditorViewer for Viewer<'_> {
         match pane.kind {
             Kind::Note => self.note_tabs(ui, pane),
             Kind::Files => self.files_header(ui),
+            Kind::Plugin => {
+                ui.label(RichText::new(self.panel_title(pane)).size(13.0).color(self.fpal.tab_active_text));
+            }
             kind => {
                 ui.label(RichText::new(kind.title()).size(13.0).color(self.fpal.tab_active_text));
             }
@@ -162,6 +204,7 @@ impl EditorViewer for Viewer<'_> {
             Kind::Outline => self.outline(ui, vault),
             Kind::Backlinks => self.backlinks(ui, vault),
             Kind::Info => self.info(ui, vault),
+            Kind::Plugin => self.plugin_panel(ui, vault, pane),
         }
     }
 
@@ -301,6 +344,11 @@ fn panel(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     Frame::new().inner_margin(Margin { left: 10, right: 10, top: 10, bottom: 6 }).show(ui, add);
 }
 
+/// Значок панели плагина: из манифеста, если такой есть, иначе пазл плагина.
+fn panel_icon(icon: Option<&str>) -> String {
+    icon.filter(|i| forma_ui::icons::exists(i)).unwrap_or("plugin").to_owned()
+}
+
 /// Пустое состояние вкладки.
 fn empty(ui: &mut Ui, fpal: &forma_ui::theme::Palette, icon: &str, title: &str, hint: &str) {
     let height = ui.available_height();
@@ -347,8 +395,62 @@ impl Viewer<'_> {
             keys: Keys { actions: self.actions, keymap: self.keymap },
             now: self.now,
             plugin_hovers: self.plugin_hovers,
+            plugins: self.plugins,
         };
         note_ui(ui, &cx, tab, &rel, doc, view, self.cmds);
+    }
+
+    /// Название панели плагина (из манифеста), если плагин на месте.
+    fn panel_title(&self, pane: &Pane) -> String {
+        let key = pane.panel.as_deref().unwrap_or_default();
+        self.plugins.panel(key).map(|p| p.title.clone()).unwrap_or_else(|| key.to_owned())
+    }
+
+    /// Панель плагина: его дерево элементов. Дерева ещё нет — просьба нарисовать; события
+    /// элементов и кнопки с командами уходят плагину, ссылки из markdown открываются здесь.
+    fn plugin_panel(&mut self, ui: &mut Ui, vault: &Vault, pane: &Pane) {
+        let key = pane.panel.clone().unwrap_or_default();
+        if self.plugins.panel(&key).is_none() {
+            let plugin = plugin_ui::split_key(&key).map_or(key.as_str(), |(p, _)| p);
+            empty(ui, self.fpal, "plugin", &t!("pane-plugin"), &t!("plugin-panel-gone", plugin = plugin.to_owned()));
+            return;
+        }
+        let note = self.current_rel.clone().unwrap_or_default();
+        let fpal = self.fpal;
+        let size = self.notes.text_size * 0.9;
+        ScrollArea::vertical().id_salt(("plugin-panel", pane.id)).auto_shrink([false, false]).show(ui, |ui| {
+            Frame::new().inner_margin(Margin::same(12)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                match self.plugins.panel_trees.get(&key) {
+                    Some(Tree::Ready(tree)) => {
+                        let mut hooks = plugin_ui::Hooks { pal: self.pal, vault, note: &note, size, actions: Vec::new() };
+                        let out = forma_ui::elements::show(ui, fpal, Id::new(("plugin-panel", &key)), tree, &mut hooks);
+                        for a in hooks.actions {
+                            self.cmds.push(super::note::render_cmd(a, &note, None));
+                        }
+                        for o in out {
+                            self.cmds.push(match o {
+                                forma_ui::elements::Output::Event(event) => Cmd::PanelEvent { key: key.clone(), event },
+                                forma_ui::elements::Output::Command { command, args } => {
+                                    let note = (!note.as_os_str().is_empty()).then_some(note.as_path());
+                                    Cmd::PluginCommand { command, cx: CommandCx { args, ..CommandCx::new("panel", note) } }
+                                }
+                            });
+                        }
+                    }
+                    Some(Tree::Failed(error)) => {
+                        ui.add(egui::Label::new(RichText::new(t!("plugin-panel-failed", error = error.clone())).size(13.0).color(fpal.warning)).wrap());
+                    }
+                    None => {
+                        self.cmds.push(Cmd::RenderPanel(key.clone()));
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().size(14.0).color(fpal.accent));
+                            ui.label(RichText::new(t!("plugin-panel-loading")).size(13.0).color(fpal.text_muted));
+                        });
+                    }
+                }
+            });
+        });
     }
 
     fn files(&mut self, ui: &mut Ui, vault: &Vault) {

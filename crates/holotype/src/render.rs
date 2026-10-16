@@ -18,6 +18,7 @@ use eframe::egui::{
 
 use crate::markdown::{Align as ColAlign, Block, CodeBlock, Doc, Inline, Link, LinkKind, ListItem, Style};
 use crate::diagram;
+use crate::plugin_ui::{PluginUi, Tree};
 use crate::fonts;
 use crate::highlight;
 use crate::math::{self, MathBox};
@@ -35,6 +36,21 @@ pub enum Action {
     /// Указатель над символом `offset` текста `text`: спросить подсказку у плагинов. Ответ
     /// ([`HoverAnswer`]) программа кладёт в память egui по ключу `key`.
     Hover { key: egui::Id, text: String, offset: usize },
+    /// Блок ` ```lang ` рисует плагин, а его дерева ещё нет: спросить плагин.
+    RenderBlock { lang: String, source: String },
+    /// Кнопка в блоке плагина: запустить команду плагина.
+    PluginCommand { command: String, args: serde_json::Value },
+}
+
+/// Что было под правым щелчком в режиме чтения: для контекстного меню.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MenuHit {
+    /// Заголовок раздела над этим местом.
+    pub heading: String,
+    /// Текст абзаца (строки, ячейки) под указателем.
+    pub paragraph: String,
+    /// Ссылка под указателем: цель и внешняя ли она.
+    pub link: Option<(String, bool)>,
 }
 
 /// Подсказка плагина к тексту под указателем: к каким символам относится и что показать.
@@ -116,6 +132,13 @@ pub struct Renderer<'a> {
     pub hovers: bool,
     /// Запрошенная прокрутка к заголовку (текст в нижнем регистре) или сноске (`^метка`).
     pub scroll_to: Option<String>,
+    /// Плагины: блоки, которые они рисуют, и цвета платформы для их элементов.
+    pub plugins: Option<(&'a PluginUi, &'a forma_ui::theme::Palette)>,
+    /// Где был правый щелчок этого кадра (контекстное меню) и что под ним оказалось.
+    pub menu_at: Option<egui::Pos2>,
+    pub menu_hit: Option<MenuHit>,
+    /// Заголовок раздела, который рисуется сейчас.
+    heading_now: String,
     anchors: Vec<(String, Rect)>,
     counter: usize,
     muted: bool,
@@ -139,6 +162,10 @@ impl<'a> Renderer<'a> {
             actions: Vec::new(),
             hovers: false,
             scroll_to: None,
+            plugins: None,
+            menu_at: None,
+            menu_hit: None,
+            heading_now: String::new(),
             anchors: Vec::new(),
             counter: 0,
             muted: false,
@@ -563,6 +590,18 @@ impl<'a> Renderer<'a> {
             }
         }
 
+        // Правый щелчок по этому тексту: запомнить раздел, абзац и ссылку для меню.
+        if let Some(p) = self.menu_at
+            && resp.rect.contains(p)
+        {
+            let link = link_at(&galley, p - pos, &links).and_then(|li| self.doc.links.get(li as usize)).and_then(|l| match l.kind {
+                LinkKind::Wiki => Some((l.target.clone(), false)),
+                LinkKind::Url => Some((l.target.clone(), true)),
+                _ => None,
+            });
+            self.menu_hit = Some(MenuHit { heading: self.heading_now.clone(), paragraph: galley.text().to_owned(), link });
+        }
+
         // Подсказки плагинов (термины курса): что под указателем — запрос программе. Ответ
         // приходит в следующем кадре и держится, пока указатель внутри найденного term.
         let mut plugin_hover: Option<HoverAnswer> = None;
@@ -715,6 +754,7 @@ impl<'a> Renderer<'a> {
             _ => (0.92, fonts::semibold()),
         };
         let color = if level >= 6 { self.pal.text_muted } else { self.pal.heading };
+        self.heading_now = text.to_owned();
         let fmt = Fmt { size: s * scale, color, family, heading: true, line_height: 1.3, strike: false, italic: false };
         let resp = self.text_run(ui, inlines, &fmt);
         if level <= 2 {
@@ -800,6 +840,14 @@ impl<'a> Renderer<'a> {
         let mut show_code: bool = ui.data(|d| d.get_temp(view_id)).unwrap_or(false);
         let rendered = diagram::is_diagram(&group[sel].lang).then(|| diagram_scene(ui.ctx(), id.with(("diagram", sel)), &group[sel]));
         let diagram_kind = rendered.as_deref().and_then(|r| r.as_ref().ok()).map(|(k, _)| *k);
+        // Блок, который рисует плагин: его название и дерево (если плагин уже ответил).
+        let plugin_block = self.plugins.and_then(|(p, _)| {
+            let cb = &group[sel];
+            let title = p.block_title(&cb.lang)?;
+            let tree = p.block_trees.get(&PluginUi::block_key(&cb.lang, &cb.code, self.note_rel));
+            Some((title.to_owned(), tree))
+        });
+        let plugin_title = plugin_block.as_ref().map(|(t, _)| if t.is_empty() { highlight::display_name(&group[sel].lang) } else { t.clone() });
 
         Frame::new()
             .fill(pal.code_bg)
@@ -835,7 +883,7 @@ impl<'a> Renderer<'a> {
                             let title_font = FontId::monospace(s * 0.8);
                             match kind {
                                 Kind::Code => {
-                                    let kind_title = diagram_kind.map(|k| k.title().to_owned());
+                                    let kind_title = diagram_kind.map(|k| k.title().to_owned()).or_else(|| plugin_title.clone());
                                     let title = cb
                                         .title
                                         .clone()
@@ -893,10 +941,11 @@ impl<'a> Renderer<'a> {
                                 if recently {
                                     ui.ctx().request_repaint_after_secs(0.4);
                                 }
-                                // Диаграмма или её исходный код.
-                                if diagram_kind.is_some() {
+                                // Диаграмма (или блок плагина) — или её исходный код.
+                                if diagram_kind.is_some() || plugin_block.is_some() {
                                     ui.add_space(s * 0.3);
-                                    for (label, code_view) in [(t!("code-view-code"), true), (t!("code-view-diagram"), false)] {
+                                    let shown = if diagram_kind.is_some() { t!("code-view-diagram") } else { t!("code-view-block") };
+                                    for (label, code_view) in [(t!("code-view-code"), true), (shown, false)] {
                                         if code_tab(ui, pal, &label, show_code == code_view, s * 0.74).clicked() && show_code != code_view {
                                             show_code = code_view;
                                             ui.data_mut(|d| d.insert_temp(view_id, show_code));
@@ -919,7 +968,7 @@ impl<'a> Renderer<'a> {
                         Kind::Console => 1.6,
                         Kind::Log => 1.5,
                     };
-                let text_shown = diagram_kind.is_none() || show_code;
+                let text_shown = (diagram_kind.is_none() && plugin_block.is_none()) || show_code;
                 let limit = term::collapse_at(cb).filter(|_| text_shown);
                 let expanded_id = id.with(("expanded", sel));
                 let expanded: bool = ui.data(|d| d.get_temp(expanded_id)).unwrap_or(false);
@@ -935,6 +984,12 @@ impl<'a> Renderer<'a> {
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.multiply_opacity(fade);
+                        if let Some((_, tree)) = &plugin_block
+                            && !show_code
+                            && self.plugin_block(ui, cb, *tree, id.with(("plugin", sel)))
+                        {
+                            return;
+                        }
                         if let Some(result) = rendered.as_deref() {
                             match result {
                                 Ok((_, scene)) if !show_code => {
@@ -988,6 +1043,39 @@ impl<'a> Renderer<'a> {
                     theme::restart_fade(ui.ctx(), id.with(("fade", sel)));
                 }
             });
+    }
+
+    /// Тело блока плагина: его дерево элементов. Пока плагин не ответил — просьба нарисовать
+    /// и «Плагин готовится». Не нарисовался — `false` и пометка: дальше покажется код.
+    fn plugin_block(&mut self, ui: &mut Ui, cb: &CodeBlock, tree: Option<&Tree>, id: egui::Id) -> bool {
+        let Some((_, fpal)) = self.plugins else { return false };
+        match tree {
+            Some(Tree::Ready(e)) => {
+                let mut hooks = crate::plugin_ui::Hooks { pal: self.pal, vault: self.vault, note: self.note_rel, size: self.size * 0.95, actions: Vec::new() };
+                let out = forma_ui::elements::show(ui, fpal, id, e, &mut hooks);
+                self.actions.append(&mut hooks.actions);
+                for o in out {
+                    if let forma_ui::elements::Output::Command { command, args } = o {
+                        self.actions.push(Action::PluginCommand { command, args });
+                    }
+                }
+                true
+            }
+            Some(Tree::Failed(err)) => {
+                let text = t!("plugin-block-failed", lang = cb.lang.clone(), error = err.clone());
+                ui.add(Label::new(RichText::new(text).size(self.size * 0.8).color(self.pal.warning)).wrap());
+                ui.add_space(self.size * 0.6);
+                false
+            }
+            None => {
+                self.actions.push(Action::RenderBlock { lang: cb.lang.clone(), source: cb.code.clone() });
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new().size(self.size * 0.8).color(self.pal.accent));
+                    ui.label(RichText::new(t!("plugin-panel-loading")).size(self.size * 0.8).color(self.pal.text_faint));
+                });
+                true
+            }
+        }
     }
 
     /// Обычный код: номера строк (если строк больше одной) и подсветка с прокруткой вбок.

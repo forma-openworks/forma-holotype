@@ -21,6 +21,8 @@ forma-actions = { git = "https://github.com/forma-openworks/forma-core", branch 
 forma-settings = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
 forma-plugins = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
 forma-shell = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-plugin-host = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+forma-plugin-ui = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
 
 eframe = { version = "0.36", default-features = false, features = [
     "wgpu_no_default_features",

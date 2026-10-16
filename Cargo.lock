@@ -1771,7 +1771,7 @@ dependencies = [
 [[package]]
 name = "forma-actions"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "egui",
  "forma-settings",
@@ -1781,7 +1781,7 @@ dependencies = [
 [[package]]
 name = "forma-build"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "embed-resource",
 ]
@@ -1789,7 +1789,7 @@ dependencies = [
 [[package]]
 name = "forma-i18n"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "fluent-bundle",
  "fluent-syntax",
@@ -1802,7 +1802,7 @@ dependencies = [
 [[package]]
 name = "forma-layout"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "egui",
  "forma-i18n",
@@ -1813,7 +1813,7 @@ dependencies = [
 [[package]]
 name = "forma-plugin-host"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "forma-plugins",
  "log",
@@ -1824,9 +1824,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "forma-plugin-ui"
+version = "0.1.0"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "forma-plugins"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "forma-settings",
  "log",
@@ -1838,7 +1847,7 @@ dependencies = [
 [[package]]
 name = "forma-settings"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "dirs",
  "log",
@@ -1850,7 +1859,7 @@ dependencies = [
 [[package]]
 name = "forma-shell"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "eframe",
  "env_logger",
@@ -1877,19 +1886,21 @@ dependencies = [
 [[package]]
 name = "forma-ui"
 version = "0.1.0"
-source = "git+https://github.com/forma-openworks/forma-core?branch=main#fa011380f2a72564812c21e07eb79d00e35cf9e9"
+source = "git+https://github.com/forma-openworks/forma-core?branch=main#ad1df8ceb5432139a77a918d1313b97c734770a0"
 dependencies = [
  "egui",
  "fontdb",
  "forma-actions",
  "forma-i18n",
  "forma-layout",
+ "forma-plugin-ui",
  "forma-plugins",
  "forma-settings",
  "log",
  "resvg",
  "rfd",
  "serde",
+ "serde_json",
  "toml",
 ]
 
@@ -2254,6 +2265,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 name = "holotype"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "chrono",
  "dirs",
  "eframe",
@@ -2262,6 +2274,8 @@ dependencies = [
  "forma-build",
  "forma-i18n",
  "forma-layout",
+ "forma-plugin-host",
+ "forma-plugin-ui",
  "forma-plugins",
  "forma-settings",
  "forma-shell",

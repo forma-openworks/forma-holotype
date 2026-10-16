@@ -29,6 +29,7 @@ use crate::markdown;
 use crate::sample;
 use crate::settings::HolotypeSettings;
 use crate::panes::{self, Kind, NoteTab, Pane, Space, ViewMode};
+use crate::plugin_ui::{self, CommandCx, PluginUi, Tree};
 use crate::theme::Palette;
 use crate::vault::{SearchHit, Vault};
 pub use docs::{Docs, NoteView};
@@ -72,6 +73,14 @@ pub enum Cmd {
     /// Спросить подсказку у плагинов: символ `offset` текста `text` заметки `note`; ответ —
     /// в память egui по ключу `key` (см. `render::HoverAnswer`).
     PluginHover { key: egui::Id, text: String, offset: usize, note: PathBuf },
+    /// Блок заметки `note` рисует плагин: спросить его дерево (если его ещё нет).
+    RenderBlock { lang: String, source: String, note: PathBuf },
+    /// Спросить дерево панели плагина `плагин/панель` (если его ещё нет).
+    RenderPanel(String),
+    /// Событие элемента панели плагина — плагину; он отвечает новым деревом.
+    PanelEvent { key: String, event: forma_plugin_ui::Event },
+    /// Команда плагина с тем, где и с чем её вызвали.
+    PluginCommand { command: String, cx: CommandCx },
     DailyNote,
     SaveAll,
     Shell(ShellCmd<Space>),
@@ -132,6 +141,12 @@ pub struct HolotypeApp {
     was_focused: bool,
     /// Что плагины уже знают о хранилище: сохранения и поколение структуры.
     plugins_seen: (u64, u64),
+    /// Панели, блоки и меню плагинов, их ответы.
+    plugin_ui: PluginUi,
+    /// Для какой заметки нарисованы панели плагинов.
+    panels_note: Option<PathBuf>,
+    /// Команда плагина с клавиатуры ждёт текст выделения режима чтения.
+    pending_command: Option<(String, CommandCx)>,
 }
 
 /// Что Holotype помнит об интерфейсе хранилища рядом с раскладкой.
@@ -166,6 +181,9 @@ impl HolotypeApp {
             cmds: Vec::new(),
             was_focused: true,
             plugins_seen: (0, 0),
+            plugin_ui: PluginUi::default(),
+            panels_note: None,
+            pending_command: None,
         };
         // Хранилище: из аргумента командной строки или последнее открытое.
         match vault_arg {
@@ -445,7 +463,7 @@ impl HolotypeApp {
         let group = |k: Kind| match k {
             Kind::Files | Kind::Search | Kind::Tags => 1,
             Kind::Outline | Kind::Backlinks | Kind::Info => 2,
-            Kind::Note | Kind::Graph => 0,
+            Kind::Note | Kind::Graph | Kind::Plugin => 0,
         };
         let shown = layout.show_editor(|p| p.kind == kind)
             || (group(kind) != 0 && layout.update_editor(|p| group(p.kind) == group(kind), |p| p.kind = kind));
@@ -461,6 +479,101 @@ impl HolotypeApp {
         if kind == Kind::Graph {
             self.graph.reheat();
         }
+    }
+
+    /// Показывает панель плагина `плагин/панель`; если её нигде нет — открывает справа, как
+    /// окно инструмента в IDE от JetBrains.
+    fn show_panel(&mut self, key: &str) {
+        let layout = &mut self.shell.layout;
+        if !layout.show_editor(|p| p.kind == Kind::Plugin && p.panel.as_deref() == Some(key)) {
+            let id = layout.next_id();
+            layout.open_editor(Pane::plugin(key, id), |_| false, Some(Zone::Right), 0.3);
+        }
+    }
+
+    /// Дерево блока от плагина (если его ещё нет). Модуль плагина ещё компилируется —
+    /// спросим в следующих кадрах.
+    fn render_block(&mut self, ctx: &egui::Context, lang: &str, source: &str, note: &Path) {
+        let key = PluginUi::block_key(lang, source, note);
+        if self.plugin_ui.block_trees.contains_key(&key) {
+            return;
+        }
+        let Some(rt) = &mut self.shell.plugin_runtime else { return };
+        let context = serde_json::json!({ "note": plugin_ui::note_path(note), "dark": self.shell.pal.dark }).to_string();
+        match rt.render_block(lang, source, &context) {
+            Some(answer) => {
+                self.plugin_ui.block_trees.insert(key, Tree::from_answer(answer));
+                ctx.request_repaint();
+            }
+            None => ctx.request_repaint_after_secs(0.1),
+        }
+    }
+
+    /// Дерево панели плагина: нарисовать (если его ещё нет) или передать событие элемента.
+    fn render_panel(&mut self, ctx: &egui::Context, key: &str, event: Option<forma_plugin_ui::Event>) {
+        if event.is_none() && self.plugin_ui.panel_trees.contains_key(key) {
+            return;
+        }
+        let Some((plugin, panel)) = plugin_ui::split_key(key) else { return };
+        let note = self.current_rel().map(|r| plugin_ui::note_path(&r)).unwrap_or_default();
+        let context = serde_json::json!({ "note": note, "dark": self.shell.pal.dark }).to_string();
+        let Some(rt) = &mut self.shell.plugin_runtime else { return };
+        let answer = match &event {
+            Some(e) => rt.panel_event(plugin, panel, &e.to_json(), &context),
+            None => rt.render_panel(plugin, panel, &context),
+        };
+        match answer {
+            Some(answer) => {
+                self.plugin_ui.panel_trees.insert(key.to_owned(), Tree::from_answer(answer));
+                ctx.request_repaint();
+            }
+            None => match rt.failure(plugin) {
+                Some(error) => {
+                    let name = self.shell.plugins.get(plugin).map(|p| p.manifest.title().to_owned()).unwrap_or_else(|| plugin.to_owned());
+                    self.plugin_ui.panel_trees.insert(key.to_owned(), Tree::Failed(t!("plugin-panel-stopped", plugin = name, error = error)));
+                }
+                None => ctx.request_repaint_after_secs(0.1),
+            },
+        }
+    }
+
+    /// Команда плагина. Что плагин попросит в ответ (открыть панель, ссылку), программа
+    /// сделает в следующем кадре.
+    fn plugin_command(&mut self, ctx: &egui::Context, command: &str, cx: &CommandCx) {
+        let Some(rt) = &mut self.shell.plugin_runtime else { return };
+        let title = rt.commands().into_iter().find(|c| c.id == command).map_or_else(|| command.to_owned(), |c| c.title);
+        let error = match rt.command(command, &cx.to_json()) {
+            Some(Ok(_)) => None,
+            Some(Err(e)) => Some(e),
+            None => rt.failure(rt.commands().iter().find(|c| c.id == command).map_or("", |c| c.plugin.as_str())),
+        };
+        if let Some(error) = error {
+            self.shell.toast(t!("plugin-command-failed", command = title, error = error), true);
+        }
+        ctx.request_repaint();
+    }
+
+    /// Команда плагина с клавиатуры: с выделенным текстом текущей вкладки. Выделение в
+    /// редакторе берётся сразу, выделение режима чтения — кадром позже.
+    fn plugin_key_command(&mut self, ctx: &egui::Context, command: String) {
+        let rel = self.current_rel();
+        let mut cx = CommandCx::new("key", rel.as_deref());
+        if let (Some(tab), Some(rel)) = (self.current, &rel)
+            && self.mode_of(tab) != ViewMode::Preview
+            && let Some(doc) = self.docs.get(rel)
+            && let Some(range) = egui::text_edit::TextEditState::load(ctx, egui::Id::new(("editor", tab))).and_then(|s| s.cursor.char_range())
+        {
+            let [a, b] = range.sorted_cursors();
+            let (ba, bb) = (char_to_byte(&doc.text, a.index.0), char_to_byte(&doc.text, b.index.0));
+            (cx.heading, cx.paragraph) = plugin_ui::context_at(&doc.text, ba);
+            cx.selection = doc.text[ba..bb].to_owned();
+        }
+        if cx.selection.is_empty() && forma_ui::selection::has_selection(ctx) {
+            forma_ui::selection::request(ctx, ctx.viewport_id());
+            self.pending_command = Some((command, cx));
+            return;
+        }
+        self.cmds.push(Cmd::PluginCommand { command, cx });
     }
 
     fn set_mode(&mut self, tab: Option<u64>, mode: ViewMode) {
@@ -606,13 +719,45 @@ impl HolotypeApp {
 
     /// Каждый кадр: code плагинов работает с открытым хранилищем и узнаёт, что в нём
     /// что-то поменялось (сохранили заметку, файлы поменяли снаружи).
-    fn plugins_frame(&mut self) {
+    fn plugins_frame(&mut self, ctx: &egui::Context) {
+        let note = self.current_rel();
         let Some(rt) = &mut self.shell.plugin_runtime else { return };
         rt.set_root(self.vault.as_ref().map(|v| v.root.as_path()));
         let seen = (self.docs.saves, self.vault.as_ref().map_or(0, |v| v.generation));
         if seen != self.plugins_seen {
             self.plugins_seen = seen;
             rt.changed(&[]);
+        }
+        self.plugin_ui.sync(rt);
+        let requests = rt.take_requests();
+        // Панели рисуются для текущей заметки: перешли к другой — нарисовать заново.
+        if note != self.panels_note {
+            self.panels_note = note.clone();
+            self.plugin_ui.panel_trees.clear();
+        }
+        for r in requests {
+            match r {
+                forma_plugin_host::Request::OpenPanel { plugin, panel } => {
+                    let key = format!("{plugin}/{panel}");
+                    self.plugin_ui.panel_trees.remove(&key);
+                    self.show_panel(&key);
+                }
+                forma_plugin_host::Request::RefreshPanel { plugin, panel } => {
+                    self.plugin_ui.panel_trees.remove(&format!("{plugin}/{panel}"));
+                }
+                forma_plugin_host::Request::OpenLink { target, .. } => {
+                    self.cmds.push(Cmd::OpenLink { target, new_tab: false, from: note.clone(), tab: None });
+                }
+            }
+            ctx.request_repaint();
+        }
+        // Команда с клавиатуры дождалась текста выделения режима чтения.
+        if self.pending_command.is_some()
+            && let Some(text) = forma_ui::selection::take(ctx)
+            && let Some((command, mut cx)) = self.pending_command.take()
+        {
+            cx.selection = text;
+            self.cmds.push(Cmd::PluginCommand { command, cx });
         }
     }
 
@@ -790,6 +935,10 @@ impl HolotypeApp {
                 }
             }
             Cmd::Rescan => self.rescan(),
+            Cmd::RenderBlock { lang, source, note } => self.render_block(ctx, &lang, &source, &note),
+            Cmd::RenderPanel(key) => self.render_panel(ctx, &key, None),
+            Cmd::PanelEvent { key, event } => self.render_panel(ctx, &key, Some(event)),
+            Cmd::PluginCommand { command, cx } => self.plugin_command(ctx, &command, &cx),
             Cmd::PluginHover { key, text, offset, note } => {
                 let note = note.to_string_lossy().replace('\\', "/");
                 let answer = self.shell.plugin_runtime.as_mut().and_then(|rt| rt.hover(&text, offset, &note)).map(|h| crate::render::HoverAnswer {
@@ -931,7 +1080,7 @@ impl eframe::App for HolotypeApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shell.begin_frame(&ctx);
-        self.plugins_frame();
+        self.plugins_frame(&ctx);
         self.shell.app_modal = self.modal.is_some();
         self.shell.handle_keys(&ctx);
         self.background(&ctx);
@@ -953,7 +1102,9 @@ impl eframe::App for HolotypeApp {
         });
         self.app_modals(&ctx);
         for id in self.shell.process(&ctx) {
-            if let Some(cmd) = self.action_cmd(&id) {
+            if self.shell.is_plugin_command(&id) {
+                self.plugin_key_command(&ctx, id);
+            } else if let Some(cmd) = self.action_cmd(&id) {
                 self.cmds.push(cmd);
             }
         }

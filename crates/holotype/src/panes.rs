@@ -48,6 +48,8 @@ pub enum Kind {
     Outline,
     Backlinks,
     Info,
+    /// Панель плагина: какая — в [`Pane::panel`].
+    Plugin,
 }
 
 impl Kind {
@@ -70,6 +72,7 @@ impl Kind {
             Kind::Outline => "outline",
             Kind::Backlinks => "backlinks",
             Kind::Info => "info",
+            Kind::Plugin => "plugin",
         }
     }
 
@@ -87,6 +90,7 @@ impl Kind {
             Kind::Outline => t!("pane-outline"),
             Kind::Backlinks => t!("pane-backlinks"),
             Kind::Info => t!("pane-info"),
+            Kind::Plugin => t!("pane-plugin"),
         }
     }
 
@@ -100,6 +104,7 @@ impl Kind {
             Kind::Outline => "outline",
             Kind::Backlinks => "link",
             Kind::Info => "info",
+            Kind::Plugin => "plugin",
         }
     }
 }
@@ -129,6 +134,9 @@ pub struct Pane {
     /// Номер открытой вкладки.
     #[serde(default)]
     pub active: usize,
+    /// Панель плагина (`плагин/панель`), если это редактор вида [`Kind::Plugin`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel: Option<String>,
 }
 
 /// Как редактор лежит в файле раскладки — нынешний и прежний (вкладка с одной заметкой).
@@ -145,6 +153,8 @@ struct PaneRepr {
     note: Option<PathBuf>,
     #[serde(default)]
     mode: Option<ViewMode>,
+    #[serde(default)]
+    panel: Option<String>,
 }
 
 impl From<PaneRepr> for Pane {
@@ -155,13 +165,18 @@ impl From<PaneRepr> for Pane {
         {
             notes.push(NoteTab { id: r.id, rel, mode: r.mode });
         }
-        Pane { id: r.id, kind: r.kind, notes, active: r.active }
+        Pane { id: r.id, kind: r.kind, notes, active: r.active, panel: r.panel }
     }
 }
 
 impl Pane {
     pub fn new(kind: Kind, id: u64) -> Self {
-        Self { id, kind, notes: Vec::new(), active: 0 }
+        Self { id, kind, notes: Vec::new(), active: 0, panel: None }
+    }
+
+    /// Панель плагина `key` (`плагин/панель`).
+    pub fn plugin(key: &str, id: u64) -> Self {
+        Self { panel: Some(key.to_owned()), ..Self::new(Kind::Plugin, id) }
     }
 
     /// Открытая вкладка заметки.
