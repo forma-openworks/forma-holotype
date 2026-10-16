@@ -418,3 +418,7 @@ export-notes-count = { $count ->
     [one] { $count } note
    *[other] { $count } notes
 }
+plugin-edit-no-task = The “Практика” section has no task “{ $task }”
+plugin-edit-no-section = The note has no section “{ $heading }”
+plugin-edit-no-note = No note { $note }
+plugin-edit-no-vault = No vault is open

@@ -433,3 +433,7 @@ export-notes-count = { $count ->
     [few] { $count } заметки
    *[many] { $count } заметок
 }
+plugin-edit-no-task = В разделе «Практика» нет пункта «{ $task }»
+plugin-edit-no-section = В заметке нет раздела «{ $heading }»
+plugin-edit-no-note = Нет заметки { $note }
+plugin-edit-no-vault = Хранилище не открыто

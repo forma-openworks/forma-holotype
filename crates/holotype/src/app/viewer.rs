@@ -423,7 +423,7 @@ impl Viewer<'_> {
                 ui.set_width(ui.available_width());
                 match self.plugins.panel_trees.get(&key) {
                     Some(Tree::Ready(tree)) => {
-                        let mut hooks = plugin_ui::Hooks { pal: self.pal, vault, note: &note, size, actions: Vec::new() };
+                        let mut hooks = plugin_ui::Hooks { pal: self.pal, vault, linked: &self.plugins.linked, note: &note, size, actions: Vec::new() };
                         let out = forma_ui::elements::show(ui, fpal, Id::new(("plugin-panel", &key)), tree, &mut hooks);
                         for a in hooks.actions {
                             self.cmds.push(super::note::render_cmd(a, &note, None));

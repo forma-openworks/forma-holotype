@@ -1052,7 +1052,8 @@ impl<'a> Renderer<'a> {
         let Some((_, fpal)) = self.plugins else { return false };
         match tree {
             Some(Tree::Ready(e)) => {
-                let mut hooks = crate::plugin_ui::Hooks { pal: self.pal, vault: self.vault, note: self.note_rel, size: self.size * 0.95, actions: Vec::new() };
+                let linked = self.plugins.map_or(&[][..], |(p, _)| p.linked.as_slice());
+                let mut hooks = crate::plugin_ui::Hooks { pal: self.pal, vault: self.vault, linked, note: self.note_rel, size: self.size * 0.95, actions: Vec::new() };
                 let out = forma_ui::elements::show(ui, fpal, id, e, &mut hooks);
                 self.actions.append(&mut hooks.actions);
                 for o in out {

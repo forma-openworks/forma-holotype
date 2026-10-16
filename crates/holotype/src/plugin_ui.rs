@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, CornerRadius, Frame, Label, Margin, RichText, Stroke, Ui};
 use forma_i18n::t;
@@ -50,6 +50,9 @@ pub struct PluginUi {
     blocks: HashMap<String, String>,
     pub panel_trees: HashMap<String, Tree>,
     pub block_trees: HashMap<u64, Tree>,
+    /// Связанные папки открытого хранилища (имя → полный путь): их картинки показываются в
+    /// блоках и панелях плагинов.
+    pub linked: Vec<(String, PathBuf)>,
 }
 
 impl PluginUi {
@@ -81,6 +84,154 @@ impl PluginUi {
         (lang.to_lowercase(), source, note).hash(&mut h);
         h.finish()
     }
+}
+
+/// Связанные папки хранилища-курса: `practice` и `related` из манифеста курса
+/// (`.holotype/assistant.toml` → `course = "…/course.toml"`), пути — от корня хранилища.
+/// Папки, которых нет на диске, пропускаются. У обычного хранилища связанных папок нет.
+pub fn linked_dirs(root: &Path) -> Vec<(String, PathBuf)> {
+    let read = |p: &Path| std::fs::read_to_string(p).ok().and_then(|t| t.parse::<toml::Table>().ok());
+    let Some(course) = read(&root.join(".holotype").join("assistant.toml")).and_then(|a| a.get("course")?.as_str().map(str::to_owned)) else { return Vec::new() };
+    let Some(course) = read(&root.join(course)) else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut add = |name: String, rel: &str| {
+        if let Ok(dir) = std::fs::canonicalize(root.join(rel)).map(plain)
+            && dir.is_dir()
+            && !out.iter().any(|(n, _): &(String, PathBuf)| *n == name)
+        {
+            out.push((name, dir));
+        }
+    };
+    if let Some(p) = course.get("practice").and_then(|v| v.as_str()) {
+        add("practice".into(), p);
+    }
+    for r in course.get("related").and_then(|v| v.as_array()).into_iter().flatten().filter_map(|v| v.as_str()) {
+        let name = Path::new(r).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| r.to_owned());
+        add(name, r);
+    }
+    out
+}
+
+/// Путь без приставки `\\?\` (её добавляет `canonicalize` на Windows): такой путь понятен
+/// людям, плагинам и загрузчику картинок (`file:///C:/…`).
+pub fn plain(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    match (s.strip_prefix(r"\\?\UNC\"), s.strip_prefix(r"\\?\")) {
+        (Some(unc), _) => PathBuf::from(format!(r"\\{unc}")),
+        (None, Some(local)) => PathBuf::from(local),
+        _ => path,
+    }
+}
+
+/// Файл, о котором говорит плагин: `linked:<имя>/…`, полный путь внутри хранилища или
+/// связанной папки — или вложение заметки `note`, как у картинок в заметках.
+pub fn resolve_file(vault: &Vault, linked: &[(String, PathBuf)], note: &Path, path: &str) -> Option<PathBuf> {
+    if let Some(rest) = path.strip_prefix("linked:") {
+        let (name, rel) = rest.split_once('/').unwrap_or((rest, ""));
+        let file = linked.iter().find(|(n, _)| n == name)?.1.join(rel);
+        return file.is_file().then_some(file);
+    }
+    let full = Path::new(path);
+    if full.is_absolute() {
+        let real = std::fs::canonicalize(full).ok().map(plain)?;
+        let inside = |root: &Path| std::fs::canonicalize(root).map(plain).is_ok_and(|r| real.starts_with(r));
+        return (inside(&vault.root) || linked.iter().any(|(_, r)| inside(r))).then_some(real);
+    }
+    vault.resolve_attachment(path, note)
+}
+
+/// Пункт раздела «Практика» с жирным началом `title` отмечен (`- [x]`); `None` — такого
+/// пункта нет. Уже отмеченный остаётся как был. Правило то же, что у `learn`
+/// (`learn_core::chapter::tick` в MyuriTeach): раздел — строка `## Практика` до следующего
+/// `## `, пункт — `- [ ] **Название.** …`, название сравнивается целиком.
+pub fn tick(text: &str, title: &str) -> Option<String> {
+    let mut inside = false;
+    let mut found: Option<(usize, bool)> = None;
+    for (n, line) in text.lines().enumerate() {
+        if line.trim_end() == "## Практика" {
+            inside = true;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if line.starts_with("## ") {
+            break;
+        }
+        let head = line.strip_prefix("- [").and_then(|rest| {
+            let (mark, rest) = rest.split_at_checked(1)?;
+            let done = match mark {
+                " " => false,
+                "x" | "X" => true,
+                _ => return None,
+            };
+            let (t, _) = rest.strip_prefix("] **")?.split_once("**")?;
+            Some((done, t.trim().to_owned()))
+        });
+        if let Some((done, t)) = head
+            && t == title
+        {
+            found = Some((n, done));
+            break;
+        }
+    }
+    let (line, done) = found?;
+    let mut out = String::with_capacity(text.len());
+    for (n, piece) in text.split_inclusive('\n').enumerate() {
+        if n == line && !done {
+            out.push_str(&piece.replacen("- [ ]", "- [x]", 1));
+        } else {
+            out.push_str(piece);
+        }
+    }
+    Some(out)
+}
+
+/// Markdown в конце заметки: отделён пустой строкой, заметка кончается переводом строки.
+pub fn append_to_note(text: &str, markdown: &str) -> String {
+    let body = text.trim_end_matches(['\n', '\r']);
+    let add = markdown.trim_matches(['\n', '\r']);
+    if body.is_empty() { format!("{add}\n") } else { format!("{body}\n\n{add}\n") }
+}
+
+/// Markdown в конце раздела с заголовком `heading` (без учёта регистра, любого уровня) —
+/// перед следующим заголовком того же или более высокого уровня. `None` — нет раздела.
+pub fn append_to_section(text: &str, heading: &str, markdown: &str) -> Option<String> {
+    let wanted = heading.trim().to_lowercase();
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let level_of = |l: &str| {
+        let t = l.trim_start();
+        let n = t.chars().take_while(|c| *c == '#').count();
+        ((1..=6).contains(&n) && t[n..].starts_with(' ')).then(|| (n, t[n..].trim().trim_end_matches('#').trim().to_lowercase()))
+    };
+    let mut fence = false;
+    let mut start: Option<(usize, usize)> = None;
+    let mut end = lines.len();
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim_start();
+        if t.starts_with("```") || t.starts_with("~~~") {
+            fence = !fence;
+            continue;
+        }
+        if fence {
+            continue;
+        }
+        match (start, level_of(l)) {
+            (None, Some((lvl, h))) if h == wanted => start = Some((i, lvl)),
+            (Some((_, lvl)), Some((other, _))) if other <= lvl => {
+                end = i;
+                break;
+            }
+            _ => {}
+        }
+    }
+    start?;
+    let before: String = lines[..end].concat();
+    let after: String = lines[end..].concat();
+    let add = markdown.trim_matches(['\n', '\r']);
+    let body = before.trim_end_matches(['\n', '\r']);
+    let tail = if after.is_empty() { String::new() } else { format!("\n{after}") };
+    Some(format!("{body}\n\n{add}\n{tail}"))
 }
 
 /// Ключ панели `плагин/панель` → (плагин, панель).
@@ -140,6 +291,8 @@ pub fn context_at(text: &str, at: usize) -> (String, String) {
 pub struct Hooks<'a> {
     pub pal: &'a Palette,
     pub vault: &'a Vault,
+    /// Связанные папки хранилища: картинки из них тоже показываются.
+    pub linked: &'a [(String, PathBuf)],
     /// Заметка, относительно которой разрешаются ссылки и картинки.
     pub note: &'a Path,
     pub size: f32,
@@ -170,11 +323,11 @@ impl forma_ui::elements::Hooks for Hooks<'_> {
     }
 
     fn image_uri(&self, path: &str) -> Option<String> {
-        self.vault.resolve_attachment(path, self.note).map(|f| crate::app::file_url(&f))
+        resolve_file(self.vault, self.linked, self.note, path).map(|f| crate::app::file_url(&f))
     }
 
     fn image(&mut self, ui: &mut Ui, _pal: &forma_ui::theme::Palette, path: &str, width: Option<f32>, alt: &str) {
-        match self.vault.resolve_attachment(path, self.note) {
+        match resolve_file(self.vault, self.linked, self.note, path) {
             Some(file) => {
                 let uri = crate::app::file_url(&file);
                 let avail = ui.available_width();
@@ -202,6 +355,52 @@ mod tests {
         assert_eq!(context_at(text, at), ("Сетка".to_owned(), "Первая строка\nвторая строка про UV.".to_owned()));
         let at = text.find("Хвост").unwrap();
         assert_eq!(context_at(text, at).0, "Сетка", "строка в блоке кода — не заголовок");
+    }
+
+    const CHAPTER: &str = "---\nchapter: \"0.1\"\n---\n\n- [ ] **Не практика.** Пункт до раздела.\n\n## Практика\n\n- [ ] **Свой package.** Создай `airfield`.\n  Готово, когда: печатает три строки.\n- [x] **Обнови toolchain.** Выполни `rustup update`.\n\n## Что дальше\n\n- [ ] **Тоже не практика.**\n";
+
+    #[test]
+    fn tick_matches_learn_exactly() {
+        // Те же случаи, что у `learn_core::chapter::tick`.
+        let ticked = tick(CHAPTER, "Свой package.").unwrap();
+        assert!(ticked.contains("- [x] **Свой package.**"));
+        assert!(ticked.contains("- [ ] **Не практика.**") && ticked.contains("- [ ] **Тоже не практика.**"), "пункты вне раздела не трогаются");
+        assert_eq!(ticked.len(), CHAPTER.len());
+        assert_eq!(tick(&ticked, "Свой package.").unwrap(), ticked, "второй раз — без изменений");
+        assert_eq!(tick(CHAPTER, "Обнови toolchain.").unwrap(), CHAPTER, "уже отмеченный — как был");
+        assert!(tick(CHAPTER, "Не практика.").is_none() && tick(CHAPTER, "Свой package").is_none());
+        assert!(tick(&CHAPTER.replace('\n', "\r\n"), "Свой package.").unwrap().contains("- [x] **Свой package.** Создай `airfield`.\r\n"), "CRLF сохраняется");
+    }
+
+    #[test]
+    fn appends_go_to_the_end_of_the_note_or_section() {
+        assert_eq!(append_to_note("", "## Вопрос\n\nОтвет\n"), "## Вопрос\n\nОтвет\n");
+        assert_eq!(append_to_note("# Вопросы\n\n\n", "## Второй"), "# Вопросы\n\n## Второй\n");
+        let text = "# Глава\n\n## Практика\n\n- [ ] **А.**\n\n```md\n## не заголовок\n```\n\n### Подраздел\n\nтекст\n\n## Что дальше\n\nконец\n";
+        let out = append_to_section(text, "практика", "Заметка Мьюри.").unwrap();
+        assert!(out.contains("текст\n\nЗаметка Мьюри.\n\n## Что дальше"), "в конец раздела, подразделы — его часть: {out}");
+        assert!(append_to_section("# A\n", "Нет такого", "x").is_none());
+        assert!(append_to_section("## Последний\nтекст", "последний", "x").unwrap().ends_with("текст\n\nx\n"));
+    }
+
+    #[test]
+    fn course_vault_links_practice_and_related_folders() {
+        let base = std::env::temp_dir().join(format!("holo-linked-{}", std::process::id()));
+        let vault = base.join("Vaults").join("ModelLearn");
+        std::fs::create_dir_all(vault.join(".holotype")).unwrap();
+        std::fs::create_dir_all(vault.join(".model-kit")).unwrap();
+        std::fs::create_dir_all(base.join("Projects").join("Practice")).unwrap();
+        std::fs::create_dir_all(base.join("Vaults").join("RustLearn")).unwrap();
+        std::fs::write(vault.join(".holotype").join("assistant.toml"), "course = \".model-kit/course.toml\"\n").unwrap();
+        std::fs::write(vault.join(".model-kit").join("course.toml"), "practice = \"../../Projects/Practice\"\nrelated = [\"../RustLearn\", \"../Missing\"]\n").unwrap();
+        let linked = linked_dirs(&vault);
+        assert_eq!(linked.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["practice", "RustLearn"], "несуществующие пропущены");
+        assert!(linked[0].1.ends_with("Practice"));
+        assert!(!linked[0].1.to_string_lossy().starts_with(r"\\?\"), "без приставки verbatim: {:?}", linked[0].1);
+        assert_eq!(plain(PathBuf::from(r"\\?\C:\a\b")), PathBuf::from(r"C:\a\b"));
+        assert_eq!(plain(PathBuf::from(r"\\?\UNC\srv\share\x")), PathBuf::from(r"\\srv\share\x"));
+        assert!(linked_dirs(&base).is_empty(), "не курс — нет связанных папок");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

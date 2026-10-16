@@ -145,6 +145,8 @@ pub struct HolotypeApp {
     plugin_ui: PluginUi,
     /// Для какой заметки нарисованы панели плагинов.
     panels_note: Option<PathBuf>,
+    /// Для какого хранилища (и его поколения) посчитаны связанные папки.
+    linked_seen: Option<(PathBuf, u64)>,
     /// Команда плагина с клавиатуры ждёт текст выделения режима чтения.
     pending_command: Option<(String, CommandCx)>,
 }
@@ -183,6 +185,7 @@ impl HolotypeApp {
             plugins_seen: (0, 0),
             plugin_ui: PluginUi::default(),
             panels_note: None,
+            linked_seen: None,
             pending_command: None,
         };
         // Хранилище: из аргумента командной строки или последнее открытое.
@@ -481,6 +484,42 @@ impl HolotypeApp {
         }
     }
 
+    /// Правка заметки `note` (путь от корня) по просьбе плагина `plugin`: через открытые
+    /// заметки, поэтому несохранённые правки не теряются, и сразу на диск. `create` — нет
+    /// заметки, так создать её (и папки).
+    fn edit_note(&mut self, plugin: &str, note: &str, create: bool, edit: impl FnOnce(&str) -> Result<String, String>) {
+        let now = self.shell.now();
+        let rel: PathBuf = note.split('/').filter(|p| !p.is_empty()).collect();
+        let result = (|| -> Result<(), String> {
+            let vault = self.vault.as_mut().ok_or_else(|| t!("plugin-edit-no-vault"))?;
+            if vault.index_of(&rel).is_none() {
+                if !create {
+                    return Err(t!("plugin-edit-no-note", note = note.to_owned()));
+                }
+                let file = vault.root.join(&rel);
+                if let Some(dir) = file.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                if !file.exists() {
+                    std::fs::write(&file, "").map_err(|e| e.to_string())?;
+                }
+                vault.rescan();
+            }
+            let doc = self.docs.get_or_load(vault, &rel).ok_or_else(|| t!("plugin-edit-no-note", note = note.to_owned()))?;
+            let new = edit(&doc.text)?;
+            if new != doc.text {
+                doc.text = new;
+                doc.mark_edited(now);
+                self.docs.save(vault, &rel, now)?;
+            }
+            Ok(())
+        })();
+        if let Err(e) = result {
+            let name = self.shell.plugins.get(plugin).map(|p| p.manifest.title().to_owned()).unwrap_or_else(|| plugin.to_owned());
+            self.shell.toast(format!("{name}: {e}"), true);
+        }
+    }
+
     /// Показывает панель плагина `плагин/панель`; если её нигде нет — открывает справа, как
     /// окно инструмента в IDE от JetBrains.
     fn show_panel(&mut self, key: &str) {
@@ -723,6 +762,14 @@ impl HolotypeApp {
         let note = self.current_rel();
         let Some(rt) = &mut self.shell.plugin_runtime else { return };
         rt.set_root(self.vault.as_ref().map(|v| v.root.as_path()));
+        // Связанные папки курса (практика, связанные курсы) — для права `linked:read` и
+        // картинок в блоках и панелях. Пересчитываются вместе с хранилищем.
+        let linked_key = self.vault.as_ref().map(|v| (v.root.clone(), v.generation));
+        if linked_key != self.linked_seen {
+            self.linked_seen = linked_key;
+            self.plugin_ui.linked = self.vault.as_ref().map(|v| plugin_ui::linked_dirs(&v.root)).unwrap_or_default();
+            rt.set_linked(self.plugin_ui.linked.clone());
+        }
         let seen = (self.docs.saves, self.vault.as_ref().map_or(0, |v| v.generation));
         if seen != self.plugins_seen {
             self.plugins_seen = seen;
@@ -747,6 +794,15 @@ impl HolotypeApp {
                 }
                 forma_plugin_host::Request::OpenLink { target, .. } => {
                     self.cmds.push(Cmd::OpenLink { target, new_tab: false, from: note.clone(), tab: None });
+                }
+                forma_plugin_host::Request::ToggleTask { plugin, note, title } => {
+                    self.edit_note(&plugin, &note, false, |t| plugin_ui::tick(t, &title).ok_or_else(|| t!("plugin-edit-no-task", task = title.clone())));
+                }
+                forma_plugin_host::Request::AppendToNote { plugin, note, markdown } => {
+                    self.edit_note(&plugin, &note, true, |t| Ok(plugin_ui::append_to_note(t, &markdown)));
+                }
+                forma_plugin_host::Request::AppendToSection { plugin, note, heading, markdown } => {
+                    self.edit_note(&plugin, &note, false, |t| plugin_ui::append_to_section(t, &heading, &markdown).ok_or_else(|| t!("plugin-edit-no-section", heading = heading.clone())));
                 }
             }
             ctx.request_repaint();
