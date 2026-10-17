@@ -74,6 +74,7 @@ pub(super) fn render_cmd(a: Action, rel: &Path, tab: Option<u64>) -> Cmd {
         Action::Hover { key, text, offset } => Cmd::PluginHover { key, text, offset, note: rel.to_path_buf() },
         Action::RenderBlock { lang, source } => Cmd::RenderBlock { lang, source, note: rel.to_path_buf() },
         Action::PluginCommand { command, args } => Cmd::PluginCommand { command, cx: CommandCx { args, ..CommandCx::new("block", Some(rel)) } },
+        Action::BlockEvent { lang, source, event } => Cmd::BlockEvent { lang, source, note: rel.to_path_buf(), event },
     }
 }
 

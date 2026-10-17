@@ -11,6 +11,7 @@ forma-i18n.workspace = true
 forma-ui.workspace = true
 forma-shell.workspace = true
 forma-plugin-host.workspace = true
+forma-plugin-ui.workspace = true
 eframe.workspace = true
 # Подсветка кода при экспорте в HTML (в окне подсвечивает оболочка — цветами темы).
 two-face = { version = "0.5", default-features = false, features = ["syntect-default-fancy"] }

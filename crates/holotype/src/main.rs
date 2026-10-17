@@ -46,9 +46,18 @@ pub static SPEC: Spec = Spec {
 };
 
 fn main() {
-    // Путь к хранилищу можно передать аргументом: `forma-holotype "D:\Заметки"`.
-    let vault_arg = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    // Путь к хранилищу можно передать аргументом: `forma-holotype "D:\Заметки"`, а с
+    // `--open заметка#раздел` — и что в нём открыть. Хранилище уже открыто в другом окне —
+    // ему и передаётся, своё окно не открывается.
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let vault_arg = forma_shell::instance::root_arg(&args);
+    let open_arg = forma_shell::instance::open_arg(&args);
+    if let Some(vault) = &vault_arg
+        && forma_shell::instance::forward(SPEC.plugin_app(), vault, open_arg.as_deref().unwrap_or(""))
+    {
+        return;
+    }
     fonts::register();
     icons::register();
-    forma_shell::run::<settings::HolotypeSettings, panes::Space, _>(&SPEC, actions::register, move |cc, shell| app::HolotypeApp::new(cc, shell, vault_arg));
+    forma_shell::run::<settings::HolotypeSettings, panes::Space, _>(&SPEC, actions::register, move |cc, shell| app::HolotypeApp::new(cc, shell, vault_arg, open_arg));
 }

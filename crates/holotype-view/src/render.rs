@@ -40,6 +40,8 @@ pub enum Action {
     RenderBlock { lang: String, source: String },
     /// Кнопка в блоке плагина: запустить команду плагина.
     PluginCommand { command: String, args: serde_json::Value },
+    /// Что сделали с элементом блока плагина (API 1.3): плагин отвечает новым деревом блока.
+    BlockEvent { lang: String, source: String, event: forma_plugin_ui::Event },
 }
 
 /// Что было под правым щелчком в режиме чтения: для контекстного меню.
@@ -850,6 +852,14 @@ impl<'a> Renderer<'a> {
             Some((title.to_owned(), tree))
         });
         let plugin_title = plugin_block.as_ref().map(|(t, _)| if t.is_empty() { highlight::display_name(&group[sel].lang) } else { t.clone() });
+        // Блок начинается со своей шапки (API 1.3) — она встаёт в шапку рамки вместо названия.
+        let plugin_header = plugin_block.as_ref().and_then(|(_, tree)| match tree {
+            Some(Tree::Ready(forma_plugin_ui::Element::Column { children, .. })) => match children.first() {
+                Some(forma_plugin_ui::Element::Header { title, icon, badge, aside }) => Some((title.clone(), icon.clone(), badge.clone(), aside.clone())),
+                _ => None,
+            },
+            _ => None,
+        });
 
         Frame::new()
             .fill(pal.code_bg)
@@ -885,6 +895,17 @@ impl<'a> Renderer<'a> {
                             // Название блока плагина — обычным шрифтом (это не имя файла и не язык).
                             let title_font = if plugin_title.is_some() && cb.title.is_none() { FontId::proportional(s * 0.8) } else { FontId::monospace(s * 0.8) };
                             match kind {
+                                Kind::Code if plugin_header.is_some() && cb.title.is_none() => {
+                                    let (title, icon, badge, _) = plugin_header.clone().unwrap_or_default();
+                                    if let Some(icon) = icon {
+                                        let (r, _) = ui.allocate_exact_size(Vec2::splat(s * 0.95), Sense::hover());
+                                        forma_ui::icons::paint(ui.painter(), r, &icon, pal.accent);
+                                    }
+                                    ui.label(RichText::new(title).font(FontId::new(s * 0.84, fonts::semibold())).color(pal.heading));
+                                    if !badge.is_empty() {
+                                        header_badge(ui, pal, &badge, s * 0.72);
+                                    }
+                                }
                                 Kind::Code => {
                                     let kind_title = diagram_kind.map(|k| k.title().to_owned()).or_else(|| plugin_title.clone());
                                     let title = cb
@@ -918,6 +939,8 @@ impl<'a> Renderer<'a> {
                             }
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.spacing_mut().button_padding = vec2(s * 0.5, s * 0.15);
+                                // Блок с шапкой (задача, тест): копировать нечего — только «Код/Блок».
+                                let copyable = plugin_header.is_none();
                                 let copied_id = id.with("copied");
                                 let copied_at: Option<f64> = ui.data(|d| d.get_temp(copied_id));
                                 let now = ui.input(|i| i.time);
@@ -932,7 +955,7 @@ impl<'a> Renderer<'a> {
                                 let btn = egui::Button::new(RichText::new(text).size(s * 0.8).family(fonts::semibold()).color(color))
                                     .frame_when_inactive(false)
                                     .corner_radius(6);
-                                if ui.add(btn).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                                if copyable && ui.add(btn).on_hover_cursor(CursorIcon::PointingHand).clicked() {
                                     // Копируем всегда весь текст, даже у свёрнутого блока.
                                     let text = match kind {
                                         Kind::Console => term::commands_text(&cb.code),
@@ -955,6 +978,13 @@ impl<'a> Renderer<'a> {
                                             theme::restart_fade(ui.ctx(), id.with(("fade", sel)));
                                         }
                                     }
+                                }
+                                // Текст справа в шапке блока («4 вопроса»).
+                                if let Some((_, _, _, aside)) = &plugin_header
+                                    && !aside.is_empty()
+                                {
+                                    ui.add_space(s * 0.5);
+                                    ui.label(RichText::new(aside).size(s * 0.78).color(pal.text_muted));
                                 }
                             });
                         });
@@ -1056,11 +1086,19 @@ impl<'a> Renderer<'a> {
             Some(Tree::Ready(e)) => {
                 let linked = self.plugins.map_or(&[][..], |(p, _)| p.linked.as_slice());
                 let mut hooks = crate::plugin_ui::Hooks { pal: self.pal, vault: self.vault, linked, note: self.note_rel, size: self.size * 0.95, actions: Vec::new() };
-                let out = forma_ui::elements::show(ui, fpal, id, e, &mut hooks);
+                // Шапка блока уже стоит в шапке рамки — тело без неё.
+                let body = match e {
+                    forma_plugin_ui::Element::Column { children, gap } if matches!(children.first(), Some(forma_plugin_ui::Element::Header { .. })) => {
+                        std::borrow::Cow::Owned(forma_plugin_ui::Element::Column { children: children[1..].to_vec(), gap: *gap })
+                    }
+                    _ => std::borrow::Cow::Borrowed(e),
+                };
+                let out = forma_ui::elements::show(ui, fpal, id, &body, &mut hooks);
                 self.actions.append(&mut hooks.actions);
                 for o in out {
-                    if let forma_ui::elements::Output::Command { command, args } = o {
-                        self.actions.push(Action::PluginCommand { command, args });
+                    match o {
+                        forma_ui::elements::Output::Command { command, args } => self.actions.push(Action::PluginCommand { command, args }),
+                        forma_ui::elements::Output::Event(event) => self.actions.push(Action::BlockEvent { lang: cb.lang.clone(), source: cb.code.clone(), event }),
                     }
                 }
                 true

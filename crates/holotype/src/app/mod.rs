@@ -75,6 +75,8 @@ pub enum Cmd {
     PluginHover { key: egui::Id, text: String, offset: usize, note: PathBuf },
     /// Блок заметки `note` рисует плагин: спросить его дерево (если его ещё нет).
     RenderBlock { lang: String, source: String, note: PathBuf },
+    /// Что сделали с элементом блока плагина (API 1.3) — плагину; он отвечает новым деревом.
+    BlockEvent { lang: String, source: String, note: PathBuf, event: forma_plugin_ui::Event },
     /// Спросить дерево панели плагина `плагин/панель` (если его ещё нет).
     RenderPanel(String),
     /// Событие элемента панели плагина — плагину; он отвечает новым деревом.
@@ -162,7 +164,7 @@ struct ViewState {
 }
 
 impl HolotypeApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, mut shell: Shell<HolotypeSettings, Space>, vault_arg: Option<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, mut shell: Shell<HolotypeSettings, Space>, vault_arg: Option<PathBuf>, open_arg: Option<String>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         crate::highlight::warm_up();
         let pal = Palette::from_theme(&shell.theme);
@@ -206,6 +208,11 @@ impl HolotypeApp {
                     app.open_vault(path);
                 }
             }
+        }
+        // `--open заметка#раздел`: что открыть в хранилище (так Holotype открывают другие
+        // программы Forma, см. `forma_shell::instance`).
+        if let Some(target) = open_arg.filter(|t| !t.is_empty()) {
+            app.cmds.push(Cmd::OpenLink { target, new_tab: false, from: None, tab: None });
         }
         app
     }
@@ -553,10 +560,36 @@ impl HolotypeApp {
         let context = serde_json::json!({ "note": plugin_ui::note_path(note), "dark": self.shell.pal.dark }).to_string();
         match rt.render_block(lang, source, &context) {
             Some(answer) => {
-                self.plugin_ui.block_trees.insert(key, Tree::from_answer(answer));
+                self.plugin_ui.put_block(lang, source, note, Tree::from_answer(answer));
                 ctx.request_repaint();
             }
             None => ctx.request_repaint_after_secs(0.1),
+        }
+    }
+
+    /// Событие элемента блока (API 1.3): плагин отвечает новым деревом блока, и оно встаёт на
+    /// место старого. Плагин старше 1.3 событий не ждёт — блок остаётся как был.
+    fn block_event(&mut self, ctx: &egui::Context, lang: &str, source: &str, note: &Path, event: &forma_plugin_ui::Event) {
+        let Some(rt) = &mut self.shell.plugin_runtime else { return };
+        let context = serde_json::json!({ "note": plugin_ui::note_path(note), "dark": self.shell.pal.dark }).to_string();
+        if let Some(answer) = rt.block_event(lang, source, &event.to_json(), &context) {
+            self.plugin_ui.put_block(lang, source, note, Tree::from_answer(answer));
+        }
+        ctx.request_repaint();
+    }
+
+    /// Открыть в программе Forma (просьба плагина, API 1.3): в самом Holotype с этим же
+    /// хранилищем — заметку, иначе — другой программе (`forma_shell::instance`).
+    fn open_in_app(&mut self, app: &str, root: &Path, open: String, from: Option<PathBuf>) {
+        let same = |a: &Path, b: &Path| std::fs::canonicalize(a).ok() == std::fs::canonicalize(b).ok();
+        if app == self.shell.spec.plugin_app() && self.vault.as_ref().is_some_and(|v| same(&v.root, root)) {
+            if !open.is_empty() {
+                self.cmds.push(Cmd::OpenLink { target: open, new_tab: false, from, tab: None });
+            }
+            return;
+        }
+        if let Err(e) = forma_shell::instance::open_app(app, root, &open) {
+            self.shell.toast(t!("plugin-open-app-failed", app = app.to_owned(), error = e), true);
         }
     }
 
@@ -752,6 +785,14 @@ impl HolotypeApp {
     /// Каждый кадр: code плагинов работает с открытым хранилищем и узнаёт, что в нём
     /// что-то поменялось (сохранили заметку, файлы поменяли снаружи).
     fn plugins_frame(&mut self, ctx: &egui::Context) {
+        // Хранилище открыто здесь: второй запуск с ним и программы Forma передают сюда, что
+        // открыть (`--open заметка#раздел`).
+        self.shell.serve_root(self.vault.as_ref().map(|v| v.root.as_path()));
+        for target in self.shell.take_forwarded() {
+            if !target.is_empty() {
+                self.cmds.push(Cmd::OpenLink { target, new_tab: false, from: None, tab: None });
+            }
+        }
         // Программа плагина завершилась — она могла записать файлы (разбор, learner-state):
         // перечитать хранилище до просьб плагина (открыть заметку, которую она создала), как
         // «Synchronize files after execution» у внешних инструментов в IDE от JetBrains.
@@ -805,6 +846,14 @@ impl HolotypeApp {
                 forma_plugin_host::Request::AppendToSection { plugin, note, heading, markdown } => {
                     self.edit_note(&plugin, &note, false, |t| plugin_ui::append_to_section(t, &heading, &markdown).ok_or_else(|| t!("plugin-edit-no-section", heading = heading.clone())));
                 }
+                // Блоки нарисуются заново: плагин дождался того, что они показывают.
+                forma_plugin_host::Request::RefreshBlocks { .. } => {
+                    let dark = self.shell.pal.dark;
+                    if let Some(rt) = &mut self.shell.plugin_runtime {
+                        self.plugin_ui.refresh_blocks(rt, |note| serde_json::json!({ "note": plugin_ui::note_path(note), "dark": dark }).to_string());
+                    }
+                }
+                forma_plugin_host::Request::OpenApp { app, root, open, .. } => self.open_in_app(&app, &root, open, note.clone()),
             }
             ctx.request_repaint();
         }
@@ -993,6 +1042,7 @@ impl HolotypeApp {
             }
             Cmd::Rescan => self.rescan(),
             Cmd::RenderBlock { lang, source, note } => self.render_block(ctx, &lang, &source, &note),
+            Cmd::BlockEvent { lang, source, note, event } => self.block_event(ctx, &lang, &source, &note, &event),
             Cmd::RenderPanel(key) => self.render_panel(ctx, &key, None),
             Cmd::PanelEvent { key, event } => self.render_panel(ctx, &key, Some(event)),
             Cmd::PluginCommand { command, cx } => self.plugin_command(ctx, &command, &cx),

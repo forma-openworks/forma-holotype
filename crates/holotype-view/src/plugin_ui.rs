@@ -29,6 +29,9 @@ pub struct PluginUi {
     /// Блоки: язык (в нижнем регистре) → название.
     blocks: HashMap<String, String>,
     pub block_trees: HashMap<u64, Tree>,
+    /// Какой блок за каждым ответом (язык, текст, заметка): по просьбе плагина
+    /// (`refresh-blocks`, API 1.3) блоки рисуются заново сразу, без пустого кадра.
+    pub block_src: HashMap<u64, (String, String, PathBuf)>,
     /// Связанные папки открытого хранилища (имя → полный путь): их картинки показываются в
     /// блоках и панелях плагинов.
     pub linked: Vec<(String, PathBuf)>,
@@ -39,6 +42,7 @@ impl PluginUi {
     pub fn sync(&mut self, rt: &Runtime) {
         if self.core.sync(rt) {
             self.block_trees.clear();
+            self.block_src.clear();
         }
         self.blocks = rt.block_langs().into_iter().map(|l| (l.to_lowercase(), rt.block(&l).unwrap_or_default())).collect();
     }
@@ -53,6 +57,24 @@ impl PluginUi {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         (lang.to_lowercase(), source, note).hash(&mut h);
         h.finish()
+    }
+
+    /// Ответ плагина на блок — на место (и запомнить, какой это блок).
+    pub fn put_block(&mut self, lang: &str, source: &str, note: &Path, tree: Tree) {
+        let key = Self::block_key(lang, source, note);
+        self.block_trees.insert(key, tree);
+        self.block_src.insert(key, (lang.to_owned(), source.to_owned(), note.to_path_buf()));
+    }
+
+    /// Нарисовать заново все блоки, которые уже рисовались: плагин попросил
+    /// (`refresh-blocks`). Старое дерево остаётся, пока не пришло новое, — без пустого кадра,
+    /// и прокрутка заметки не прыгает. `context` — контекст блока по его заметке.
+    pub fn refresh_blocks(&mut self, rt: &mut Runtime, context: impl Fn(&Path) -> String) {
+        for (key, (lang, source, note)) in self.block_src.clone() {
+            if let Some(answer) = rt.render_block(&lang, &source, &context(&note)) {
+                self.block_trees.insert(key, Tree::from_answer(answer));
+            }
+        }
     }
 }
 
@@ -266,6 +288,10 @@ impl forma_ui::elements::Hooks for Hooks<'_> {
 
     fn image_uri(&self, path: &str) -> Option<String> {
         resolve_file(self.vault, self.linked, self.note, path).map(|f| file_url(&f))
+    }
+
+    fn code_job(&self, ctx: &egui::Context, _pal: &forma_ui::theme::Palette, text: &str, lang: &str, size: f32) -> egui::text::LayoutJob {
+        crate::highlight::job(ctx, text, lang, size, size * 1.6)
     }
 
     fn image(&mut self, ui: &mut Ui, _pal: &forma_ui::theme::Palette, path: &str, width: Option<f32>, alt: &str) {
