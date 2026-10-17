@@ -1,0 +1,24 @@
+[package]
+name = "holotype-view"
+description = "Forma: Holotype — просмотр заметок: рендер Markdown, код и консоль, диаграммы, формулы, плашки, блоки плагинов. Им рисуют заметки Holotype и другие программы Forma"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+holotype-vault.workspace = true
+forma-i18n.workspace = true
+forma-ui.workspace = true
+forma-shell.workspace = true
+forma-plugin-host.workspace = true
+eframe.workspace = true
+# Подсветка кода при экспорте в HTML (в окне подсвечивает оболочка — цветами темы).
+two-face = { version = "0.5", default-features = false, features = ["syntect-default-fancy"] }
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+# Манифест курса (`course.toml`): связанные папки хранилища для плагинов.
+toml = "1.1"
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+forma-build.workspace = true

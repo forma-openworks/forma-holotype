@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 holotype-vault.workspace = true
+holotype-view.workspace = true
 forma-i18n.workspace = true
 forma-layout.workspace = true
 forma-ui.workspace = true

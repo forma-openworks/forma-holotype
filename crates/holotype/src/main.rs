@@ -11,25 +11,20 @@ mod app;
 mod assist;
 mod autoscroll;
 mod complete;
-mod diagram;
 mod editor;
 mod emmet;
 mod export;
-mod fonts;
 mod graph;
-mod highlight;
 mod i18n;
 mod icon;
 mod icons;
-mod math;
 mod panes;
-mod plugin_ui;
-mod render;
 mod settings;
-mod term;
-mod theme;
 
 pub use holotype_vault::{markdown, sample, vault};
+// Просмотр заметок — библиотека `holotype-view` (им рисует и Instar); пути `crate::render` и
+// другие остаются прежними.
+pub use holotype_view::{diagram, fonts, highlight, math, plugin_ui, render, term, theme};
 
 use forma_settings::AppInfo;
 use forma_shell::Spec;

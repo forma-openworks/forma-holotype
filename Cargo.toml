@@ -3,7 +3,7 @@
 # и подключается по путям: разные программы — одна основа.
 [workspace]
 resolver = "3"
-members = ["crates/holotype", "crates/holotype-vault"]
+members = ["crates/holotype", "crates/holotype-vault", "crates/holotype-view"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +12,7 @@ license = "MIT"
 
 [workspace.dependencies]
 holotype-vault = { path = "crates/holotype-vault" }
+holotype-view = { path = "crates/holotype-view" }
 # Ядро Forma Core — отдельный репозиторий, Cargo берёт его с GitHub.
 forma-build = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
 forma-i18n = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }

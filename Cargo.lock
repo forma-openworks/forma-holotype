@@ -2283,6 +2283,7 @@ dependencies = [
  "forma-shell",
  "forma-ui",
  "holotype-vault",
+ "holotype-view",
  "image",
  "log",
  "rfd",
@@ -2303,6 +2304,24 @@ dependencies = [
  "log",
  "pulldown-cmark",
  "trash",
+]
+
+[[package]]
+name = "holotype-view"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "forma-build",
+ "forma-i18n",
+ "forma-plugin-host",
+ "forma-shell",
+ "forma-ui",
+ "holotype-vault",
+ "serde",
+ "serde_json",
+ "syntect",
+ "toml",
+ "two-face",
 ]
 
 [[package]]

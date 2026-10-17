@@ -82,6 +82,11 @@ pub fn linked_dirs(root: &Path) -> Vec<(String, PathBuf)> {
     out
 }
 
+/// Адрес файла для загрузчиков egui и браузера: `file:///C:/…`.
+pub fn file_url(path: &Path) -> String {
+    format!("file:///{}", path.to_string_lossy().replace('\\', "/").trim_start_matches('/'))
+}
+
 /// Путь без приставки `\\?\` (её добавляет `canonicalize` на Windows): такой путь понятен
 /// людям, плагинам и загрузчику картинок (`file:///C:/…`).
 pub fn plain(path: PathBuf) -> PathBuf {
@@ -260,13 +265,13 @@ impl forma_ui::elements::Hooks for Hooks<'_> {
     }
 
     fn image_uri(&self, path: &str) -> Option<String> {
-        resolve_file(self.vault, self.linked, self.note, path).map(|f| crate::app::file_url(&f))
+        resolve_file(self.vault, self.linked, self.note, path).map(|f| file_url(&f))
     }
 
     fn image(&mut self, ui: &mut Ui, _pal: &forma_ui::theme::Palette, path: &str, width: Option<f32>, alt: &str) {
         match resolve_file(self.vault, self.linked, self.note, path) {
             Some(file) => {
-                let uri = crate::app::file_url(&file);
+                let uri = file_url(&file);
                 let avail = ui.available_width();
                 let img = egui::Image::new(uri).fit_to_original_size(1.0).max_width(width.unwrap_or(avail).min(avail)).corner_radius(CornerRadius::same(8));
                 let resp = ui.add(img);

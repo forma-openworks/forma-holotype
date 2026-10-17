@@ -226,8 +226,8 @@ impl Palette {
         }
     }
 
-    /// Палитра встроенной темы по умолчанию (для тестов).
-    #[cfg(test)]
+    /// Палитра встроенной темы по умолчанию: для тестов (и здесь, и в программах, которые
+    /// пользуются рендером).
     pub fn default_dark() -> Self {
         let themes = forma_ui::theme::Themes::new(BUILTIN_THEMES, None);
         Self::from_theme(&themes.resolve(DEFAULT_THEME, DEFAULT_THEME))

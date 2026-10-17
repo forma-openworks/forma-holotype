@@ -1183,9 +1183,7 @@ impl eframe::App for HolotypeApp {
     }
 }
 
-pub(crate) fn file_url(path: &Path) -> String {
-    format!("file:///{}", path.to_string_lossy().replace('\\', "/").trim_start_matches('/'))
-}
+pub(crate) use crate::plugin_ui::file_url;
 
 pub(crate) fn char_to_byte(s: &str, ci: usize) -> usize {
     s.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(s.len())
