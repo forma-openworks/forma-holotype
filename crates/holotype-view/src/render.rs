@@ -771,7 +771,9 @@ impl<'a> Renderer<'a> {
         let pal = self.pal;
         let s = self.size;
         let doc = self.doc;
-        let key_w = s * 9.0;
+        // Колонка имён — не шире 40 % карточки: в узкой области (заметки рядом с кодом в
+        // Instar) значениям тоже остаётся место.
+        let key_w = (s * 9.0).min(ui.available_width() * 0.4);
         Frame::new()
             .fill(pal.card_bg)
             .stroke(Stroke::new(1.0, pal.border))
