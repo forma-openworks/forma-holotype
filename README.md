@@ -45,6 +45,8 @@ A holotype is the first specimen a new species is described from.
 - **Completion, like in an IDE:** notes after `[[`, headings after `[[Note#`, images with a preview after `![[`, paths after `](`, tags, callout types, code block languages and attribute colors. `Ctrl+Space` opens it by hand.
 - **Emmet-style abbreviations** on `Tab`: `t3x4` is a table, `-*3` a list, `[]*3` tasks, `!tip` a callout, `code:rust` a code block, `flow` a flowchart, `h2{Plan}+[]*3` a section with tasks. There are children `>`, siblings `+`, repeat `*N`, text `{…}`, numbering `$` and groups `( )`. After expanding, `Tab` walks through the input spots, and through cells in tables.
 - **Images by drag and drop:** the file is copied into the attachments folder and `![[file.png]]` is inserted into the note.
+- **Images of any format open in a tab**, like in Obsidian: PNG, JPEG, WebP, TIFF, TGA, DDS, HDR, EXR, SVG, PSD, JPEG XL and, through the Windows codecs, HEIC, AVIF and camera RAW. The wheel zooms towards the pointer and dragging pans, like Blender's image editor; a double click switches between fit and 100 %. The same formats show inside notes; a double click on an embedded image opens its tab.
+- **Hidden folders on request:** the eye in the Files header (or Settings ▸ Notes) shows folders and files whose names start with a dot.
 
 **Reading**
 - **A reading view** with callouts (`> [!tip]`), aligned tables, clickable tasks, code highlighting for about 170 languages (GLSL and WGSL included) with tabs on code blocks, images, footnotes, YAML properties and embedded notes `![[…]]`.
@@ -190,6 +192,8 @@ Forma: Holotype — программа для заметок, конспекто
 - **Подсказки при вводе, как в IDE:** заметки после `[[`, разделы после `[[Заметка#`, картинки с превью после `![[`, пути в `](`, теги, типы плашек, языки блоков кода и цвета атрибутов. `Ctrl+Space` — вызвать вручную.
 - **Сокращения в духе Emmet** по `Tab`: `t3x4` — таблица, `-*3` — список, `[]*3` — задачи, `!tip` — плашка, `code:rust` — блок кода, `flow` — блок-схема, `h2{План}+[]*3` — раздел с задачами. Есть вложение `>`, соседи `+`, повтор `*N`, текст `{…}`, нумерация `$` и группы `( )`. После разворачивания `Tab` ходит по местам для ввода, а в таблицах — по ячейкам.
 - **Картинки перетаскиванием:** файл копируется в папку вложений, а в заметку вставляется `![[файл.png]]`.
+- **Картинки любых форматов открываются вкладкой**, как в Obsidian: PNG, JPEG, WebP, TIFF, TGA, DDS, HDR, EXR, SVG, PSD, JPEG XL, а через кодеки Windows — HEIC, AVIF и RAW с камер. Колесо приближает к указателю, перетаскивание двигает, как в редакторе изображений Blender; двойной щелчок — «вписать» или 100 %. Те же форматы видны и в заметках; двойной щелчок по картинке в заметке открывает её вкладку.
+- **Скрытые папки по желанию:** глаз в заголовке «Файлов» (или «Настройки ▸ Заметки») показывает папки и файлы, чьё имя начинается с точки.
 
 **Чтение**
 - **Красивый просмотр:** плашки (`> [!tip]`), таблицы с выравниванием, кликабельные задачи, подсветка кода (около 170 языков, включая GLSL и WGSL) и вкладки у блоков кода, картинки, сноски, YAML-свойства, встраивание заметок `![[…]]`.

@@ -207,10 +207,7 @@ pub fn same_heading(a: &str, b: &str) -> bool {
 }
 
 pub fn is_image_path(path: &str) -> bool {
-    let lower = path.to_lowercase();
-    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"]
-        .iter()
-        .any(|ext| lower.ends_with(ext))
+    forma_images::is_image(std::path::Path::new(path))
 }
 
 // ---------------------------------------------------------------------------------------------

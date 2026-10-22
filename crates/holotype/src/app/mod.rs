@@ -11,6 +11,7 @@ mod chrome;
 mod docs;
 mod modals;
 mod note;
+mod image_view;
 mod viewer;
 
 use std::collections::{HashMap, HashSet};
@@ -70,6 +71,10 @@ pub enum Cmd {
     ExportSite,
     Reveal(PathBuf),
     Rescan,
+    /// Показать или спрятать в «Файлах» папки и файлы с точкой.
+    ToggleHidden,
+    /// Открыть картинку (полный путь): из хранилища — новой вкладкой, другую — программой системы.
+    OpenImage(PathBuf),
     /// Спросить подсказку у плагинов: символ `offset` текста `text` заметки `note`; ответ —
     /// в память egui по ключу `key` (см. `render::HoverAnswer`).
     PluginHover { key: egui::Id, text: String, offset: usize, note: PathBuf },
@@ -166,6 +171,9 @@ struct ViewState {
 impl HolotypeApp {
     pub fn new(cc: &eframe::CreationContext<'_>, mut shell: Shell<HolotypeSettings, Space>, vault_arg: Option<PathBuf>, open_arg: Option<String>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        // Свой загрузчик спрашивается раньше: все форматы и уменьшение огромных картинок под
+        // предел видеокарты; анимированные GIF и WebP остаются egui_extras.
+        forma_images::install(&cc.egui_ctx);
         crate::highlight::warm_up();
         let pal = Palette::from_theme(&shell.theme);
         let pal_gen = shell.theme_gen;
@@ -233,7 +241,7 @@ impl HolotypeApp {
 
     fn open_vault(&mut self, path: PathBuf) {
         self.save_all();
-        match Vault::open(&path) {
+        match Vault::open_with(&path, self.notes().show_hidden) {
             Ok(v) => {
                 self.save_view();
                 self.shell.app_settings.vaults.remember(&path);
@@ -315,7 +323,9 @@ impl HolotypeApp {
     /// в редакторе заметок.
     fn open_note(&mut self, rel: PathBuf, new_tab: bool, tab: Option<u64>) {
         let Some(vault) = &self.vault else { return };
-        if vault.index_of(&rel).is_none() {
+        // Картинки хранилища открываются такими же вкладками, как в Obsidian.
+        let image = forma_images::is_image(&rel) && vault.attachments.contains(&rel);
+        if vault.index_of(&rel).is_none() && !image {
             return;
         }
         self.expand_to(&rel);
@@ -1041,6 +1051,17 @@ impl HolotypeApp {
                 }
             }
             Cmd::Rescan => self.rescan(),
+            Cmd::OpenImage(path) => {
+                let rel = self.vault.as_ref().and_then(|v| path.strip_prefix(&v.root).ok().map(Path::to_path_buf)).filter(|rel| self.vault.as_ref().is_some_and(|v| v.attachments.contains(rel)));
+                match rel {
+                    Some(rel) => self.open_note(rel, true, None),
+                    None => ctx.open_url(egui::OpenUrl::new_tab(holotype_view::plugin_ui::file_url(&path))),
+                }
+            }
+            Cmd::ToggleHidden => {
+                let notes = &mut self.shell.app_settings.notes;
+                notes.show_hidden = !notes.show_hidden;
+            }
             Cmd::RenderBlock { lang, source, note } => self.render_block(ctx, &lang, &source, &note),
             Cmd::BlockEvent { lang, source, note, event } => self.block_event(ctx, &lang, &source, &note, &event),
             Cmd::RenderPanel(key) => self.render_panel(ctx, &key, None),
@@ -1072,6 +1093,11 @@ impl HolotypeApp {
     /// Фоновая работа кадра: автосохранение, файлы, изменённые снаружи, перетащенные файлы.
     fn background(&mut self, ctx: &egui::Context) {
         let now = self.shell.now();
+        // Скрытые папки показали или спрятали — кнопкой в «Файлах» или в настройках.
+        let show_hidden = self.notes().show_hidden;
+        if let Some(vault) = &mut self.vault {
+            vault.set_show_hidden(show_hidden);
+        }
         if let Some(vault) = &mut self.vault {
             let (errors, waiting) = self.docs.autosave(vault, now);
             for err in errors {

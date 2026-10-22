@@ -28,6 +28,8 @@ arboard = { version = "3.6", default-features = false }
 toml = "1.1"
 eframe.workspace = true
 egui_extras = { version = "0.36", features = ["file", "image", "gif", "webp"] }
+# Картинки любых форматов: вкладки картинок и картинки в заметках.
+forma-images = { workspace = true, features = ["decode"] }
 # Подсветка кода при экспорте в HTML (в окне подсвечивает оболочка — цветами темы).
 two-face = { version = "0.5", default-features = false, features = ["syntect-default-fancy"] }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }

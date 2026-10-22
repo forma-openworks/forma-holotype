@@ -205,6 +205,15 @@ notes-default-mode = Как открывать заметки
 notes-accent = Акцентный цвет
 notes-accent-theme = Как в теме
 notes-accent-hint = Акцентный цвет перекрашивает ссылки, выделение и кнопки поверх выбранной темы.
+notes-group-files = Файлы
+notes-show-hidden = Показывать скрытые папки и файлы
+notes-show-hidden-hint = Папки и файлы, чьё имя начинается с точки (.holotype, .rust-project). Папки .git, node_modules и target не видны никогда.
+files-show-hidden = Показать скрытые папки и файлы
+files-hide-hidden = Спрятать скрытые папки и файлы
+image-fit = Вписать
+image-actual-size = Настоящий размер: пиксель картинки — пиксель экрана
+image-failed-title = Картинка не открылась
+image-failed-hint = { $error }
 
 ## Просмотр заметки
 

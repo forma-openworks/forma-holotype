@@ -58,13 +58,18 @@ pub struct Vault {
     pub attachments: Vec<PathBuf>,
     /// Увеличивается при любом изменении структуры или связей (для кэшей графа, дерева и т.п.).
     pub generation: u64,
+    /// Показывать папки и файлы с точкой в начале имени (`.holotype`, `.rust-project`).
+    pub show_hidden: bool,
 }
 
 /// Папки вложений, которые узнаются в любом хранилище (первая найденная и используется).
 const ATTACHMENTS_DIRS: &[&str] = &["Вложения", "Attachments"];
 
-fn is_hidden(name: &str) -> bool {
-    name.starts_with('.') || name == "node_modules" || name == "target"
+/// Пропускать ли при чтении хранилища. Папки систем контроля версий и сборки не видны
+/// никогда (как список игнорируемых файлов в IntelliJ: там тысячи служебных файлов), папки и
+/// файлы с точкой — пока их не попросили показать.
+fn skipped(name: &str, show_hidden: bool) -> bool {
+    matches!(name, ".git" | ".hg" | ".svn" | "node_modules" | "target") || (name.starts_with('.') && !show_hidden)
 }
 
 fn is_markdown(path: &Path) -> bool {
@@ -88,12 +93,25 @@ pub fn sanitize_name(name: &str) -> String {
 
 impl Vault {
     pub fn open(root: &Path) -> io::Result<Self> {
+        Self::open_with(root, false)
+    }
+
+    /// Открывает хранилище; `show_hidden` — видны ли папки и файлы с точкой.
+    pub fn open_with(root: &Path, show_hidden: bool) -> io::Result<Self> {
         if !root.is_dir() {
             return Err(io::Error::new(io::ErrorKind::NotFound, t!("vault-error-not-found", path = root.display().to_string())));
         }
-        let mut v = Vault { root: root.to_path_buf(), notes: Vec::new(), folders: Vec::new(), attachments: Vec::new(), generation: 1 };
+        let mut v = Vault { root: root.to_path_buf(), notes: Vec::new(), folders: Vec::new(), attachments: Vec::new(), generation: 1, show_hidden };
         v.rescan();
         Ok(v)
+    }
+
+    /// Показать или спрятать папки и файлы с точкой (хранилище перечитывается).
+    pub fn set_show_hidden(&mut self, show: bool) {
+        if self.show_hidden != show {
+            self.show_hidden = show;
+            self.rescan();
+        }
     }
 
     pub fn name(&self) -> String {
@@ -113,7 +131,7 @@ impl Vault {
             let Ok(entries) = std::fs::read_dir(self.root.join(&rel_dir)) else { continue };
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if is_hidden(&name) {
+                if skipped(&name, self.show_hidden) {
                     continue;
                 }
                 let rel = rel_dir.join(&name);
@@ -589,6 +607,26 @@ mod tests {
         assert!(!sanitize_name("...").is_empty(), "пустое имя заменяется подписью «Без названия»");
     }
 
+    /// Папки с точкой видны только по просьбе, `.git` — никогда.
+    #[test]
+    fn hidden_folders_show_on_request() {
+        let root = std::env::temp_dir().join("holotype-hidden-test");
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in [".course", ".git"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(root.join("a.md"), "# A").unwrap();
+        std::fs::write(root.join(".course/b.md"), "# B").unwrap();
+        std::fs::write(root.join(".course/course.toml"), "").unwrap();
+        std::fs::write(root.join(".git/HEAD"), "").unwrap();
+        let mut v = Vault::open(&root).unwrap();
+        assert_eq!((v.notes.len(), v.folders.len(), v.attachments.len()), (1, 0, 0));
+        v.set_show_hidden(true);
+        assert_eq!(v.notes.len(), 2);
+        assert_eq!(v.folders, vec![PathBuf::from(".course")], "папка .git не видна никогда");
+        assert_eq!(v.attachments, vec![PathBuf::from(".course/course.toml")]);
+    }
+
     #[test]
     fn search_ranges_on_char_boundaries() {
         let note = |rel: &str, content: &str| Note::from_content(PathBuf::from(rel), content.to_owned(), None);
@@ -598,6 +636,7 @@ mod tests {
             folders: Vec::new(),
             attachments: Vec::new(),
             generation: 1,
+            show_hidden: false,
         };
         // Длина строки после to_lowercase та же, но границы символов сдвинуты — подсветки нет, падения тоже.
         for hit in vault.search("i", 10).iter().chain(&vault.search("мир", 10)) {

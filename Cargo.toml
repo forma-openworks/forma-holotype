@@ -24,6 +24,8 @@ forma-plugins = { git = "https://github.com/forma-openworks/forma-core", branch 
 forma-shell = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
 forma-plugin-host = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
 forma-plugin-ui = { git = "https://github.com/forma-openworks/forma-core", branch = "main" }
+# Картинки любых форматов: в хранилище — только список форматов, в программе — чтение.
+forma-images = { git = "https://github.com/forma-openworks/forma-core", branch = "main", default-features = false }
 
 eframe = { version = "0.36", default-features = false, features = [
     "wgpu_no_default_features",

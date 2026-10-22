@@ -31,6 +31,8 @@ pub enum Action {
     /// Открыть заметку по цели вики-ссылки (может содержать `#раздел`).
     OpenNote { target: String, new_tab: bool },
     OpenUrl(String),
+    /// Открыть картинку (полный путь): из хранилища — вкладкой, другую — программой системы.
+    OpenImage(std::path::PathBuf),
     ToggleTask(Range<usize>),
     SearchTag(String),
     /// Указатель над символом `offset` текста `text`: спросить подсказку у плагинов. Ответ
@@ -1634,7 +1636,7 @@ impl<'a> Renderer<'a> {
                 let resp = ui.add(img);
                 let hint = if alt.is_empty() { t!("preview-open-image") } else { format!("{alt}\n{}", t!("preview-open-image")) };
                 if resp.on_hover_text(hint).double_clicked() {
-                    self.actions.push(Action::OpenUrl(uri));
+                    self.actions.push(Action::OpenImage(path.clone()));
                 }
                 if !alt.is_empty() && !wiki {
                     ui.add_space(6.0);

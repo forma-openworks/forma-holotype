@@ -82,6 +82,15 @@ fn stem(rel: &Path) -> String {
     rel.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+/// Название и значок вкладки: заметка — имя без `.md`, картинка — имя файла целиком.
+fn tab_label(rel: &Path) -> (&'static str, String) {
+    if forma_images::is_image(rel) {
+        ("file-image", rel.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default())
+    } else {
+        ("note", stem(rel))
+    }
+}
+
 impl EditorViewer for Viewer<'_> {
     type Editor = Pane;
 
@@ -148,7 +157,7 @@ impl EditorViewer for Viewer<'_> {
 
     fn title(&mut self, pane: &Pane) -> String {
         match pane.active_note() {
-            Some(n) => stem(&n.rel),
+            Some(n) => tab_label(&n.rel).1,
             None if pane.kind == Kind::Plugin => self.panel_title(pane),
             None => pane.kind.title(),
         }
@@ -261,7 +270,8 @@ impl Viewer<'_> {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     for (i, n) in pane.notes.iter().enumerate() {
-                        let (resp, on_close) = doc_tab(ui, fpal, "note", &stem(&n.rel), i == pane.active, docs.is_dirty(&n.rel));
+                        let (icon, title) = tab_label(&n.rel);
+                        let (resp, on_close) = doc_tab(ui, fpal, icon, &title, i == pane.active, docs.is_dirty(&n.rel));
                         if resp.middle_clicked() || (resp.clicked() && on_close) {
                             action = Some(TabAction::Close(i));
                         } else if resp.clicked() {
@@ -336,6 +346,11 @@ impl Viewer<'_> {
             if header_button(ui, fpal, "refresh").on_hover_text(t!("action-rescan")).clicked() {
                 cmds.push(Cmd::Rescan);
             }
+            // Папки и файлы с точкой: глаз открыт — видны.
+            let (icon, hint) = if vault.show_hidden { ("show", t!("files-hide-hidden")) } else { ("hide", t!("files-show-hidden")) };
+            if header_button(ui, fpal, icon).on_hover_text(hint).clicked() {
+                cmds.push(Cmd::ToggleHidden);
+            }
         });
     }
 }
@@ -380,6 +395,16 @@ impl Viewer<'_> {
             return;
         };
         let rel = tab.rel.clone();
+        // Картинка хранилища — во вкладке просмотра.
+        if forma_images::is_image(&rel) {
+            if let Some(error) = super::image_view::show(ui, self.fpal, tab.id, &vault.abs(&rel)) {
+                empty(ui, self.fpal, "file-image", &t!("image-failed-title"), &t!("image-failed-hint", error = error));
+                if ui.vertical_centered(|ui| ui.button(t!("action-reveal"))).inner.clicked() {
+                    self.cmds.push(Cmd::Reveal(rel));
+                }
+            }
+            return;
+        }
         let Some(doc) = self.docs.get_or_load(vault, &rel) else {
             empty(ui, self.fpal, "warning", &t!("note-missing-title"), &t!("note-missing-hint", path = rel.display().to_string()));
             return;
@@ -826,10 +851,13 @@ fn tree_ui(ui: &mut Ui, node: &TreeNode, depth: usize, expanded: &mut HashSet<Pa
                 }
             }
             NodeKind::Note => cmds.push(Cmd::Open { rel: node.rel.clone(), new_tab, tab: None }),
+            // Картинки открываются вкладкой, остальные файлы — в проводнике.
+            NodeKind::File if forma_images::is_image(&node.rel) => cmds.push(Cmd::Open { rel: node.rel.clone(), new_tab, tab: None }),
             NodeKind::File => cmds.push(Cmd::Reveal(node.rel.clone())),
         }
     }
-    if resp.middle_clicked() && matches!(node.kind, NodeKind::Note) {
+    let openable = matches!(node.kind, NodeKind::Note) || (matches!(node.kind, NodeKind::File) && forma_images::is_image(&node.rel));
+    if resp.middle_clicked() && openable {
         cmds.push(Cmd::Open { rel: node.rel.clone(), new_tab: true, tab: None });
     }
     theme::context_menu(&resp, |ui| match node.kind {
@@ -868,6 +896,9 @@ fn tree_ui(ui: &mut Ui, node: &TreeNode, depth: usize, expanded: &mut HashSet<Pa
             }
         }
         NodeKind::File => {
+            if openable && ui.button(t!("action-open-new-tab")).clicked() {
+                cmds.push(Cmd::Open { rel: node.rel.clone(), new_tab: true, tab: None });
+            }
             if ui.button(t!("action-reveal")).clicked() {
                 cmds.push(Cmd::Reveal(node.rel.clone()));
             }

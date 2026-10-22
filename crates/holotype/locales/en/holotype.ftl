@@ -202,6 +202,15 @@ notes-default-mode = Open notes in
 notes-accent = Accent color
 notes-accent-theme = From the theme
 notes-accent-hint = The accent color repaints links, selection and buttons on top of the chosen theme.
+notes-group-files = Files
+notes-show-hidden = Show hidden folders and files
+notes-show-hidden-hint = Folders and files whose name starts with a dot (.holotype, .rust-project). The .git, node_modules and target folders are never shown.
+files-show-hidden = Show hidden folders and files
+files-hide-hidden = Hide hidden folders and files
+image-fit = Fit
+image-actual-size = Actual size: one image pixel per screen pixel
+image-failed-title = The image did not open
+image-failed-hint = { $error }
 
 ## Note preview
 

@@ -69,6 +69,7 @@ pub(super) fn render_cmd(a: Action, rel: &Path, tab: Option<u64>) -> Cmd {
     match a {
         Action::OpenNote { target, new_tab } => Cmd::OpenLink { target, new_tab, from: Some(rel.to_path_buf()), tab },
         Action::OpenUrl(u) => Cmd::OpenUrl(u),
+        Action::OpenImage(path) => Cmd::OpenImage(path),
         Action::ToggleTask(r) => Cmd::ToggleTask { rel: rel.to_path_buf(), range: r },
         Action::SearchTag(t) => Cmd::SearchTag(t),
         Action::Hover { key, text, offset } => Cmd::PluginHover { key, text, offset, note: rel.to_path_buf() },

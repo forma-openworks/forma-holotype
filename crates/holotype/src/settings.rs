@@ -40,11 +40,13 @@ pub struct Notes {
     pub mono_editor: bool,
     /// Как открывается заметка.
     pub default_mode: ViewMode,
+    /// Показывать в «Файлах» папки и файлы с точкой в начале имени.
+    pub show_hidden: bool,
 }
 
 impl Default for Notes {
     fn default() -> Self {
-        Self { accent: None, text_size: 16.0, readable_width: true, mono_editor: false, default_mode: ViewMode::Preview }
+        Self { accent: None, text_size: 16.0, readable_width: true, mono_editor: false, default_mode: ViewMode::Preview, show_hidden: false }
     }
 }
 
@@ -101,7 +103,7 @@ impl AppSettings for HolotypeSettings {
     }
 
     fn pages(&self) -> Vec<PageInfo> {
-        let keywords = vec![t!("notes-accent"), t!("notes-text-size"), t!("notes-readable-width"), t!("notes-mono-editor"), t!("notes-default-mode")];
+        let keywords = vec![t!("notes-accent"), t!("notes-text-size"), t!("notes-readable-width"), t!("notes-mono-editor"), t!("notes-default-mode"), t!("notes-show-hidden")];
         vec![PageInfo::new(NOTES_PAGE, t!("settings-page-notes")).icon("file-text").order(order::EDITOR).keywords(keywords)]
     }
 
@@ -184,6 +186,14 @@ fn notes_page(ui: &mut Ui, pal: &Palette, search: &str, n: &mut Notes) {
         }
         sw::hint(ui, pal, &t!("notes-accent-hint"));
     });
+
+    sw::section(ui, pal, &t!("notes-group-files"), |ui| {
+        let modified = n.show_hidden != def.show_hidden;
+        if sw::check(ui, pal, search, &t!("notes-show-hidden"), &mut n.show_hidden, modified) {
+            n.show_hidden = def.show_hidden;
+        }
+        sw::hint(ui, pal, &t!("notes-show-hidden-hint"));
+    });
 }
 
 /// `config.json` первых версий.
@@ -230,6 +240,7 @@ impl Legacy {
             readable_width: self.readable_width,
             mono_editor: self.mono_editor,
             default_mode: self.default_mode,
+            show_hidden: false,
         };
         let vaults = Vaults { recent: self.recent_vaults, last: self.vault };
         (HolotypeSettings { notes, vaults }, appearance)
