@@ -113,6 +113,14 @@ cargo test
 
 The built app is `target\release\forma-holotype.exe`.
 
+**The Windows installer** is built with [Inno Setup](https://jrsoftware.org/isinfo.php) 6.7 or newer (`winget install JRSoftware.InnoSetup`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File installer\build.ps1
+```
+
+The script builds a release with the C runtime linked statically, so the target PC needs no Visual C++ Redistributable, draws the wizard images from the logo and writes `target\installer\Forma-Holotype-Setup-<version>.exe`. The wizard asks whether to install for the current user only (no administrator rights) or for all users. It offers a desktop shortcut, an "Open as vault in Holotype" item in the folder menu of Explorer, and `forma-holotype` in `PATH`. It follows the light or dark Windows theme and speaks English and Russian.
+
 ### Shortcuts
 
 Every one of them can be changed in **Settings → Keymap**.
@@ -141,19 +149,19 @@ Every one of them can be changed in **Settings → Keymap**.
 | Path | Contents |
 |---|---|
 | `crates/holotype-vault` | Data without UI: the vault (`vault.rs`), Markdown parsing (`markdown.rs`), the demo vault (`sample.rs`) |
+| `crates/holotype-view` | The note renderer as a library: the reading view (`render.rs`), the formula engine (`math.rs`), mermaid and DOT parsing, graph layout, drawing and SVG export (`diagram/`), code highlighting, terminal sessions and logs (`term.rs`), note color keys (`note.*`), callouts and accents (`theme.rs`), the built-in Holotype themes (`themes/`) and its translations (`locales/<lang>/view.ftl`) |
 | `crates/holotype` | The app |
 | `crates/holotype/src/main.rs` | The app description for the Forma shell (`SPEC`) and startup |
 | `crates/holotype/src/app/` | The app inside the shell: commands, open notes, the note view, area editors, menus and status bar, dialogs |
 | `crates/holotype/src/panes.rs`, `actions.rs`, `settings.rs` | Area editors, note tabs and built-in workspaces, actions and default shortcuts, the Notes settings |
-| `crates/holotype/src/render.rs`, `editor.rs` | The reading view and editor highlighting |
+| `crates/holotype/src/editor.rs` | Editor highlighting |
 | `crates/holotype/src/emmet.rs`, `complete.rs`, `assist.rs` | Abbreviations, completion and its popup |
-| `crates/holotype/src/math.rs`, `diagram/` | The formula engine; mermaid and DOT parsing, graph layout, drawing and SVG export |
 | `crates/holotype/src/graph.rs`, `export.rs` | The link graph, export to HTML |
-| `crates/holotype/src/theme.rs`, `themes/` | Note color keys (`note.*`), callouts, accents; the built-in Holotype themes |
 | `crates/holotype/src/icon.rs` | The app icon from `assets/logo/`, also embedded into the `.exe` |
 | `crates/holotype/locales/<lang>/holotype.ftl` | UI translations |
 | `crates/holotype/icons/lucide/` | Extra Lucide icons and their license |
 | `assets/logo/` | The logo |
+| `installer/` | The Windows installer: the Inno Setup script (`holotype.iss`), its build script (`build.ps1`) and the wizard image generator (`art/`) |
 | `demo-vault/` | The demo vault, as the app creates it |
 
 ### Where data lives
@@ -260,6 +268,14 @@ cargo test
 
 Готовая программа — `target\release\forma-holotype.exe`.
 
+**Установщик для Windows** собирается [Inno Setup](https://jrsoftware.org/isinfo.php) 6.7 или новее (`winget install JRSoftware.InnoSetup`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File installer\build.ps1
+```
+
+Скрипт собирает release со статически подключённой библиотекой C, поэтому на другом компьютере не нужен Visual C++ Redistributable, рисует картинки мастера из логотипа и пишет `target\installer\Forma-Holotype-Setup-<версия>.exe`. Мастер спрашивает, ставить только для себя (без прав администратора) или для всех пользователей. Он предлагает ярлык на рабочем столе, пункт «Открыть как хранилище в Holotype» в меню папок Проводника и `forma-holotype` в `PATH`. Мастер следует светлой или тёмной теме Windows и говорит по-английски и по-русски.
+
 ### Горячие клавиши
 
 Любое сочетание можно поменять в **Настройки → Горячие клавиши**.
@@ -288,19 +304,19 @@ cargo test
 | Путь | Что внутри |
 |---|---|
 | `crates/holotype-vault` | Данные без интерфейса: хранилище (`vault.rs`), разбор Markdown (`markdown.rs`), демо-хранилище (`sample.rs`) |
+| `crates/holotype-view` | Отрисовка заметок как библиотека: просмотр (`render.rs`), движок формул (`math.rs`), разбор mermaid и DOT, раскладка графов, рисование и выгрузка в SVG (`diagram/`), подсветка кода, сессии терминала и логи (`term.rs`), ключи цветов заметок (`note.*`), плашки и акценты (`theme.rs`), встроенные темы Holotype (`themes/`) и её переводы (`locales/<язык>/view.ftl`) |
 | `crates/holotype` | Сама программа |
 | `crates/holotype/src/main.rs` | Описание программы для оболочки Forma (`SPEC`) и запуск |
 | `crates/holotype/src/app/` | Программа внутри оболочки: команды, открытые заметки, просмотр заметки, редакторы областей, меню и строка состояния, диалоги |
 | `crates/holotype/src/panes.rs`, `actions.rs`, `settings.rs` | Редакторы областей, вкладки заметок и встроенные рабочие пространства, действия и сочетания по умолчанию, настройки «Заметки» |
-| `crates/holotype/src/render.rs`, `editor.rs` | Просмотр заметки и подсветка в редакторе |
+| `crates/holotype/src/editor.rs` | Подсветка в редакторе |
 | `crates/holotype/src/emmet.rs`, `complete.rs`, `assist.rs` | Сокращения, подсказки и их всплывающий список |
-| `crates/holotype/src/math.rs`, `diagram/` | Движок формул; разбор mermaid и DOT, раскладка графов, рисование и выгрузка в SVG |
 | `crates/holotype/src/graph.rs`, `export.rs` | Граф связей, экспорт в HTML |
-| `crates/holotype/src/theme.rs`, `themes/` | Ключи цветов заметок (`note.*`), плашки, акценты; встроенные темы Holotype |
 | `crates/holotype/src/icon.rs` | Иконка программы из `assets/logo/`, её же вшивает в `.exe` сборочный скрипт |
 | `crates/holotype/locales/<язык>/holotype.ftl` | Переводы интерфейса |
 | `crates/holotype/icons/lucide/` | Дополнительные значки Lucide и их лицензия |
 | `assets/logo/` | Логотип |
+| `installer/` | Установщик для Windows: сценарий Inno Setup (`holotype.iss`), скрипт сборки (`build.ps1`) и генератор картинок мастера (`art/`) |
 | `demo-vault/` | Демо-хранилище в том виде, в каком его создаёт программа |
 
 ### Где хранятся данные

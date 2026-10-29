@@ -1,0 +1,14 @@
+# Картинки мастера установки из логотипа. Отдельный маленький проект, не в workspace
+# программы: его запускает только installer/build.ps1.
+[package]
+name = "holotype-installer-art"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["webp"] }
+png = "0.18"
