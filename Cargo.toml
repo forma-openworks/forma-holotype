@@ -1,6 +1,6 @@
 # Forma: Holotype — заметки и документация проекта FORMA.
-# Общая основа программ Forma (крейты forma-*) живёт в репозитории Forma Mycelium
-# и подключается по путям: разные программы — одна основа.
+# Общая основа программ Forma (крейты forma-*) — ядро Forma Core в своём репозитории,
+# Cargo берёт его с GitHub: разные программы — одна основа.
 [workspace]
 resolver = "3"
 members = ["crates/holotype", "crates/holotype-vault", "crates/holotype-view"]

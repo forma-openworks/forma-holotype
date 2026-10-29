@@ -26,7 +26,7 @@
 
 ### What it is
 
-Forma: Holotype is a desktop app for notes, study notes and documentation in the spirit of Obsidian. It is part of FORMA and is built on [Forma Core](https://github.com/forma-openworks/forma-core): "different apps, one base". The window, areas, workspaces, themes, settings, keymap, Find Action, plugins and translations are shared with [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype brings only its own parts: notes, the editor, the reading view, the graph, formulas, diagrams and export.
+Forma: Holotype is a desktop app for notes, study notes and documentation in the spirit of Obsidian. It is part of FORMA and is built on [Forma Core](https://github.com/forma-openworks/forma-core): "different apps, one base". The window, areas, workspaces, themes, settings, keymap, Find Action, plugins and translations are shared with the other Forma apps. Holotype brings only its own parts: notes, the editor, the reading view, the graph, formulas, diagrams and export.
 
 Notes are plain `.md` files in a folder (a "vault"), so they open in any editor and can live in git.
 
@@ -173,7 +173,7 @@ Forma: Holotype is part of FORMA. Idea and design: Holo. The code is written ent
 
 ### Что это
 
-Forma: Holotype — программа для заметок, конспектов и документации в духе Obsidian. Она часть FORMA и построена на [Forma Core](https://github.com/forma-openworks/forma-core): «разные приложения — одна основа». Окно, области, рабочие пространства, темы, настройки, горячие клавиши, «Найти действие», плагины и переводы общие с [Forma Mycelium](https://github.com/forma-openworks/forma-mycelium). Holotype приносит только своё: заметки, редактор, просмотр, граф, формулы, диаграммы и экспорт.
+Forma: Holotype — программа для заметок, конспектов и документации в духе Obsidian. Она часть FORMA и построена на [Forma Core](https://github.com/forma-openworks/forma-core): «разные приложения — одна основа». Окно, области, рабочие пространства, темы, настройки, горячие клавиши, «Найти действие», плагины и переводы общие с другими программами Forma. Holotype приносит только своё: заметки, редактор, просмотр, граф, формулы, диаграммы и экспорт.
 
 Заметки — обычные `.md` файлы в папке («хранилище»), поэтому их можно открыть в любом редакторе или держать в git.
 
